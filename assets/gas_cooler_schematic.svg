@@ -1,0 +1,150 @@
+<svg width="920" height="620" viewBox="0 0 920 620" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="760" y2="560" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFD"/>
+      <stop offset="1" stop-color="#E6EEF3"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#51626D"/>
+      <stop offset="1" stop-color="#2B3943"/>
+    </linearGradient>
+    <linearGradient id="bundle" x1="250" y1="180" x2="680" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A7BAC6"/>
+      <stop offset="1" stop-color="#637B8A"/>
+    </linearGradient>
+    <linearGradient id="air" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#15B8A6"/>
+    </linearGradient>
+    <linearGradient id="gas" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#D9485F"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="920" height="620" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#233540" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <rect x="30" y="30" width="860" height="560" rx="36" fill="url(#bg)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="210" y="150" width="500" height="290" rx="30" fill="white"/>
+  </g>
+
+  <path d="M260 430H665L635 470H292L260 430Z" fill="#8199A7"/>
+  <rect x="286" y="167" width="350" height="150" rx="20" transform="rotate(-7 286 167)" fill="url(#bundle)" stroke="#314653" stroke-width="4"/>
+
+  <g opacity="0.58">
+    <path d="M315 174L330 313" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M333 171L348 310" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M351 169L366 308" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M369 167L384 306" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M387 165L402 304" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M405 163L420 302" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M423 161L438 300" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M441 159L456 298" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M459 157L474 296" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M477 155L492 294" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M495 153L510 292" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M513 151L528 290" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M531 149L546 288" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M549 147L564 286" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M567 145L582 284" stroke="#D8E5EC" stroke-width="4"/>
+    <path d="M585 143L600 282" stroke="#D8E5EC" stroke-width="4"/>
+  </g>
+
+  <rect x="214" y="210" width="85" height="54" rx="14" fill="url(#gas)"/>
+  <rect x="627" y="182" width="84" height="54" rx="14" fill="url(#gas)"/>
+  <path d="M160 237H214" stroke="url(#gas)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M711 209H768" stroke="url(#gas)" stroke-width="16" stroke-linecap="round"/>
+  <path d="M144 237L173 220V254L144 237Z" fill="#F59E0B"/>
+  <path d="M784 209L755 192V226L784 209Z" fill="#D9485F"/>
+
+  <g>
+    <rect x="250" y="470" width="420" height="26" rx="13" fill="url(#steel)"/>
+    <rect x="300" y="496" width="26" height="56" rx="8" fill="#566B79"/>
+    <rect x="594" y="496" width="26" height="56" rx="8" fill="#566B79"/>
+  </g>
+
+  <g>
+    <circle cx="340" cy="390" r="66" fill="#102635"/>
+    <circle cx="340" cy="390" r="52" fill="#153548" stroke="#91A7B5" stroke-width="4"/>
+    <path d="M340 338C362 348 372 373 366 395C346 395 331 381 330 359C330 350 333 343 340 338Z" fill="#CFD9DF"/>
+    <path d="M295 406C304 383 329 371 351 378C348 398 331 412 309 416C303 416 299 413 295 406Z" fill="#CFD9DF"/>
+    <path d="M374 421C352 430 327 422 315 403C329 389 351 388 369 401C375 406 377 412 374 421Z" fill="#CFD9DF"/>
+  </g>
+
+  <g>
+    <circle cx="460" cy="390" r="66" fill="#102635"/>
+    <circle cx="460" cy="390" r="52" fill="#153548" stroke="#91A7B5" stroke-width="4"/>
+    <path d="M460 338C482 348 492 373 486 395C466 395 451 381 450 359C450 350 453 343 460 338Z" fill="#CFD9DF"/>
+    <path d="M415 406C424 383 449 371 471 378C468 398 451 412 429 416C423 416 419 413 415 406Z" fill="#CFD9DF"/>
+    <path d="M494 421C472 430 447 422 435 403C449 389 471 388 489 401C495 406 497 412 494 421Z" fill="#CFD9DF"/>
+  </g>
+
+  <g>
+    <circle cx="580" cy="390" r="66" fill="#102635"/>
+    <circle cx="580" cy="390" r="52" fill="#153548" stroke="#91A7B5" stroke-width="4"/>
+    <path d="M580 338C602 348 612 373 606 395C586 395 571 381 570 359C570 350 573 343 580 338Z" fill="#CFD9DF"/>
+    <path d="M535 406C544 383 569 371 591 378C588 398 571 412 549 416C543 416 539 413 535 406Z" fill="#CFD9DF"/>
+    <path d="M614 421C592 430 567 422 555 403C569 389 591 388 609 401C615 406 617 412 614 421Z" fill="#CFD9DF"/>
+  </g>
+
+  <path d="M340 510V575" stroke="url(#air)" stroke-width="12" stroke-linecap="round"/>
+  <path d="M460 510V575" stroke="url(#air)" stroke-width="12" stroke-linecap="round"/>
+  <path d="M580 510V575" stroke="url(#air)" stroke-width="12" stroke-linecap="round"/>
+  <path d="M340 580L325 551H355L340 580Z" fill="#14B8A6"/>
+  <path d="M460 580L445 551H475L460 580Z" fill="#14B8A6"/>
+  <path d="M580 580L565 551H595L580 580Z" fill="#14B8A6"/>
+
+  <path d="M340 321V276" stroke="url(#air)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M460 321V268" stroke="url(#air)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M580 321V260" stroke="url(#air)" stroke-width="10" stroke-linecap="round"/>
+  <path d="M340 246L325 275H355L340 246Z" fill="#0F766E"/>
+  <path d="M460 238L445 267H475L460 238Z" fill="#0F766E"/>
+  <path d="M580 230L565 259H595L580 230Z" fill="#0F766E"/>
+
+  <g>
+    <circle cx="132" cy="168" r="24" fill="#F59E0B"/>
+    <text x="132" y="176" text-anchor="middle" font-size="20" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="white">A1</text>
+    <path d="M156 170H226" stroke="#F59E0B" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 8"/>
+    <text x="70" y="126" font-size="23" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="#7C4A00">Gaz Girişi</text>
+    <text x="60" y="154" font-size="16" font-family="Trebuchet MS, Verdana, sans-serif" fill="#7C4A00">Debi · P₁ · T₁</text>
+  </g>
+
+  <g>
+    <circle cx="790" cy="146" r="24" fill="#D9485F"/>
+    <text x="790" y="154" text-anchor="middle" font-size="20" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="white">A2</text>
+    <path d="M766 148H696" stroke="#D9485F" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 8"/>
+    <text x="772" y="102" font-size="23" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="#9E1C36">Gaz Çıkışı</text>
+    <text x="766" y="130" font-size="16" font-family="Trebuchet MS, Verdana, sans-serif" fill="#9E1C36">P₂ · T₂</text>
+  </g>
+
+  <g>
+    <circle cx="160" cy="535" r="24" fill="#14B8A6"/>
+    <text x="160" y="543" text-anchor="middle" font-size="20" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="white">B1</text>
+    <path d="M184 530H300" stroke="#14B8A6" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 8"/>
+    <text x="54" y="504" font-size="23" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="#0F766E">Hava Girişi</text>
+    <text x="68" y="532" font-size="16" font-family="Trebuchet MS, Verdana, sans-serif" fill="#0F766E">Ambient Tᴀɪʀ,in</text>
+  </g>
+
+  <g>
+    <circle cx="772" cy="502" r="24" fill="#0F766E"/>
+    <text x="772" y="510" text-anchor="middle" font-size="20" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="white">B2</text>
+    <path d="M748 500H626" stroke="#0F766E" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 8"/>
+    <text x="742" y="470" font-size="23" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="#0B4E55">Hava Çıkışı</text>
+    <text x="734" y="498" font-size="16" font-family="Trebuchet MS, Verdana, sans-serif" fill="#0B4E55">Tᴀɪʀ,out</text>
+  </g>
+
+  <g>
+    <circle cx="460" cy="88" r="25" fill="#324756"/>
+    <text x="460" y="96" text-anchor="middle" font-size="20" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="white">C1</text>
+    <path d="M460 113V160" stroke="#324756" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 8"/>
+    <text x="505" y="74" font-size="24" font-family="Trebuchet MS, Verdana, sans-serif" font-weight="700" fill="#243540">Bundle / UA</text>
+    <text x="505" y="102" font-size="16" font-family="Trebuchet MS, Verdana, sans-serif" fill="#243540">U · F · LMTD · Alan</text>
+  </g>
+
+  <text x="460" y="602" text-anchor="middle" font-size="19" font-family="Trebuchet MS, Verdana, sans-serif" fill="#45606D">
+    Şematik air finned gas cooler - giriş kartları A1/A2/B1/B2/C1 etiketlerine göre konumlanır
+  </text>
+</svg>

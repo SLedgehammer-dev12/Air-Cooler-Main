@@ -1,0 +1,21 @@
+{
+    "Örnek Gaz (Kuru - %100 Molar)": {
+        "METHANE": {"yuzde": 95.0, "tip": "Molar"},
+        "ETHANE": {"yuzde": 3.0, "tip": "Molar"},
+        "NITROGEN": {"yuzde": 2.0, "tip": "Molar"}
+    },
+    "Örnek Gaz (Islak - %100 Molar)": {
+        "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+        "ETHANE": {"yuzde": 5.0, "tip": "Molar"},
+        "PROPANE": {"yuzde": 3.0, "tip": "Molar"},
+        "N-BUTANE": {"yuzde": 2.0, "tip": "Molar"},
+        "CARBONDIOXIDE": {"yuzde": 3.0, "tip": "Molar"},
+        "NITROGEN": {"yuzde": 1.0, "tip": "Molar"},
+        "WATER": {"yuzde": 1.0, "tip": "Molar"}
+    },
+    "Örnek Gaz (Kütlesel - %100)": {
+        "METHANE": {"yuzde": 90.0, "tip": "Kütlesel"},
+        "ETHANE": {"yuzde": 5.0, "tip": "Kütlesel"},
+        "PROPANE": {"yuzde": 5.0, "tip": "Kütlesel"}
+    }
+}

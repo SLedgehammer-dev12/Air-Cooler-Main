@@ -1,0 +1,6 @@
+CoolProp>=6.6
+numpy>=2.0
+pandas>=2.2
+Pint>=0.24
+plotly>=5.18
+streamlit>=1.41
