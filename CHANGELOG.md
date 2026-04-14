@@ -4,14 +4,16 @@
 
 - Giriş ekranı, gas cooler şeması etrafındaki A1/A2/B1/B2/C1 kartları ile yeniden tasarlandı.
 - `assets/gas_cooler_schematic.svg` eklendi ve veri girişleri ekipman bölgeleriyle eşleştirildi.
-- Proses, hava ve UA girdileri fiziksel konum mantığına göre ayrıştırıldı.
-- Mevcut termal yük ve UA/LMTD akışı yeni şematik yerleşime taşındı.
+- UA / LMTD / gerekli alan ön boyutlandırması yeni arayüz ile birlikte korunarak rapora bağlandı.
+- Windows standalone paket `dist\AirCooler_Main` altında PyInstaller ile oluşturuldu.
+- Public repo `SLedgehammer-dev12/Air-Cooler-Main` açıldı.
+- `v3.6.0` GitHub release yayınlandı ve Windows zip paketi release varlığı olarak yüklendi.
 
 ## 3.5.0 - 2026-04-15
 
 - UA / LMTD / gerekli alan ön boyutlandırma hesapları eklendi.
 - Hava giriş/çıkış sıcaklığı, kullanıcı tanımlı U ve LMTD düzeltme faktörü F girdileri eklendi.
-- LMTD için fiziksel olmayan terminal sıcaklık kombinasyonları açık hata ile engelleniyor.
+- LMTD için fiziksel olmayan terminal sıcaklık kombinasyonları açık hata ile engellendi.
 - Yeni boyutlandırma testleri eklendi ve gerçek ortam smoke testleri çalıştırıldı.
 
 ## 3.4.0 - 2026-04-15

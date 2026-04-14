@@ -1,108 +1,72 @@
 # CONTINUITY
 
-Bu dosya, yeni bir oturum açıldığında projeye hızlı ve tutarlı şekilde devam etmek için tutulur.
+Bu dosya yeni bir oturum açıldığında projeye hızlı ve tutarlı şekilde devam etmek için tutulur.
 
 ## Read First
-
-Yeni bir session başlarken şu sırayla ilerle:
 
 1. `CONTINUITY.md`
 2. `TASK.md`
 3. `TODO.md`
 4. `ANALYSIS.md`
-5. Sonra ilgili kod dosyaları:
+5. Kod tarafında:
 - `air_cooler_main_core.py`
 - `air_cooler_main_app.py`
 - `tests/test_air_cooler_main.py`
 
-## Current Status
+## Güncel Durum
 
 Tarih: 2026-04-15
 
-`Air Cooler Main` klasörü, bundan sonraki geliştirmelerin kalıcı çalışma alanı olarak kullanılıyor.
+Kalıcı çalışma klasörü:
 
-Tamamlanan ana geçişler:
+- `D:\İş\Çalışan programlar\@Güncelleme\Natural gas Air Cooler\Air Cooler\Air Cooler Main`
 
-- kaynak dosyalar versiyonsuz `Main` isimlerine taşındı
-- hesap motoru UI katmanından ayrıldı
-- iki faz belirsizliği için güvenli hata akışı eklendi
-- test ve build iskeleti güncellendi
-- operasyonel markdown dosyaları oluşturuldu
-- UA / LMTD / gerekli alan ön boyutlandırması eklendi
-- giriş ekranı gas cooler şeması etrafında yeniden kurgulandı
+Ana teknik durum:
 
-## Last Completed Work
+- gerçek gaz termal yük hesabı çalışıyor
+- iki-faz belirsizlik koruması var
+- UA / LMTD / gerekli alan ön boyutlandırması var
+- şematik giriş ekranı A1/A2/B1/B2/C1 bölgeleri ile kurulmuş durumda
+- Windows standalone paket üretildi ve çalıştığı doğrulandı
+- GitHub repo ve release yayınlandı
 
-1. Yerel `.venv` kuruldu ve bağımlılıklar yüklendi.
-2. Birim testleri, termodinamik smoke testleri ve Streamlit sağlık kontrolü çalıştırıldı.
-3. UA / LMTD / gerekli alan ön boyutlandırması çekirdeğe ve rapor ekranına bağlandı.
-4. `assets/gas_cooler_schematic.svg` eklendi.
-5. `air_cooler_main_app.py` içinde A1/A2/B1/B2/C1 odaklı şematik giriş düzeni kuruldu.
+## Son Bu Oturumda Yapılanlar
 
-## Verified Commands
+1. Gas cooler çizimi eklendi.
+2. Giriş ekranı şema etrafında yeniden düzenlendi.
+3. `3.6.0` sürümü için PyInstaller paketi üretildi.
+4. Standalone paket smoke test ile doğrulandı.
+5. `SLedgehammer-dev12/Air-Cooler-Main` public repo oluşturuldu.
+6. `v3.6.0` release açıldı ve Windows zip paketi yüklendi.
 
-```powershell
-python -m py_compile air_cooler_main_core.py air_cooler_main_app.py run_air_cooler_main.py tests\test_air_cooler_main.py
-.venv\Scripts\python -m unittest tests\test_air_cooler_main.py
-.venv\Scripts\python -m streamlit run air_cooler_main_app.py --server.headless true
-```
+## Doğrulama Özeti
 
-## Open Items
+- `.\.venv\Scripts\python -m unittest tests\test_air_cooler_main.py` -> `5 tests OK`
+- headless Streamlit health -> `ok`
+- packaged launcher smoke test -> `health=ok`, `root=200`
 
-1. PyInstaller çıktısı küçültülmeli.
-2. Hava tarafı modeli genişletilmeli.
-3. Fan gücü, hava debisi ve yüz hızı hesapları eklenmeli.
-4. Gerekirse gerçek drag-drop etkileşimi için custom component düşünülmeli.
+## Repo ve Release Bilgisi
 
-## Next Recommended Step
+- Repo: `https://github.com/SLedgehammer-dev12/Air-Cooler-Main`
+- Release: `https://github.com/SLedgehammer-dev12/Air-Cooler-Main/releases/tag/v3.6.0`
+- Commit: `2555d8cda50c414d76fb5f286008ba729e7e4dac`
+- Release asset SHA-256: `10EC5A4403EE005E116C026A180BAADFB00D4EF26EBB201E7C14AA9BC0CCFD71`
 
-En mantıklı sonraki adım:
+## Bir Sonraki Mantıklı Adım
 
-`air_cooler_main_core.py` üzerine hava tarafı mühendislik modelini eklemek.
+`air_cooler_main_core.py` üzerine hava tarafı mühendislik modelini eklemek:
 
-Önerilen sıra:
+1. hava debisi
+2. fan gücü
+3. face velocity
+4. air-side pressure drop
 
-1. Hava debisi
-2. Fan gücü
-3. Face velocity
-4. Air-side pressure drop
+## Paket Notu
 
-## Session Update Template
+Release edilen dağıtım tek başına sadece `.exe` değildir. Kullanıcıya dağıtılacak doğru artefakt:
 
-```text
-### YYYY-MM-DD
+- `AirCooler_Main-v3.6.0-windows-x64.zip`
 
-Yapılanlar:
-- ...
+Bu zip açıldıktan sonra:
 
-Doğrulama:
-- ...
-
-Açık kalanlar:
-- ...
-
-Bir sonraki adım:
-- ...
-```
-
-### 2026-04-15
-
-Yapılanlar:
-- Proje altında `.venv` oluşturuldu.
-- `requirements.txt` bağımlılıkları kuruldu.
-- Birim testleri gerçek ortamda çalıştırıldı.
-- Çekirdek hesaplar için gaz, yoğuşma ve belirsiz iki-faz smoke testleri koşturuldu.
-- Streamlit sağlık endpoint'i `/_stcore/health` üzerinden doğrulandı.
-- UA / LMTD / gerekli alan ön boyutlandırması eklendi ve test edildi.
-- Gas cooler şeması eklendi ve giriş ekranı ekipman bölgelerine göre düzenlendi.
-
-Doğrulama:
-- `.venv\\Scripts\\python -m unittest tests\\test_air_cooler_main.py`
-- `HEALTH_OK ok`
-
-Açık kalanlar:
-- Build boyutu optimizasyonu
-- Tasarım/boyutlandırma hesaplarının hava tarafında derinleştirilmesi
-
-Bir sonraki adım:
-- Hava debisi, fan gücü ve yüz hızı modelini ekle
+- `AirCooler_Main.exe` dosyası, aynı klasördeki `_internal` ile birlikte çalıştırılmalıdır.
