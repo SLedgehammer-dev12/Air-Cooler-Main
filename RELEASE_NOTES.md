@@ -32,9 +32,23 @@ Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu 
     > [!IMPORTANT]
     > `AirCooler_Main.exe` dosyasının çalışabilmesi için klasördeki `_internal` dizininin silinmemesi ve aynı dizinde bulunması gerekmektedir.
 
+    > [!WARNING]
+    > **Windows SmartScreen Uyarısı Çıkarsa:**
+    > Lisanslı dijital sertifika imzası içermeyen bağımsız projelerde Windows *"Windows kişisel bilgisayarınızı korudu"* uyarısı verebilir. Bunu aşmak için ekrandaki **Ek Bilgi (More Info)** seçeneğine ve ardından beliren **Yine de Çalıştır (Run Anyway)** butonuna basabilirsiniz.
+
 ### 2. macOS Kurulumu (`AirCooler_Main-v3.7.0-macos-arm64.dmg`)
 1.  İndirdiğiniz `.dmg` dosyasına çift tıklayarak mount edin.
 2.  Klasör içerisindeki `AirCooler_Main` çalıştırılabilir dosyasını çalıştırın veya uygulamanızı bilgisayarınıza kopyalayın.
+
+    > [!WARNING]
+    > **macOS Kötü Amaçlı Yazılım / Güvenlik Uyarısı (Gatekeeper Bypass):**
+    > Apple Developer sertifikası ile imzalanmamış açık kaynaklı projelerde macOS ilk çalıştırmada *"Apple, kötü amaçlı yazılım içermediğini doğrulayamadı..."* uyarısı verir. Bu güvenlik engelini aşmak için:
+    > 1. Klasördeki `AirCooler_Main` dosyasına **sağ tıklayıp (Control tuşuna basılı tutarak) Aç (Open)** seçeneğini seçin. Karşınıza gelen onay penceresinde **Aç (Open)** butonuna tıklayın.
+    > 2. Veya Mac'inizde **Sistem Ayarları > Gizlilik ve Güvenlik** menüsüne girin. Sayfanın en altındaki *"Yine de Aç (Open Anyway)"* butonuna tıklayın.
+    > 3. Alternatif olarak, Terminal'i açıp şu komutu çalıştırarak karantina etiketini kaldırabilirsiniz:
+    >    ```bash
+    >    xattr -cr /path/to/AirCooler_Main
+    >    ```
 
 ### Varsayılan Giriş Bilgileri (Default Credentials)
 İlk açılışta veritabanı otomatik olarak kurulur ve aşağıdaki varsayılan kullanıcılar oluşturulur:
