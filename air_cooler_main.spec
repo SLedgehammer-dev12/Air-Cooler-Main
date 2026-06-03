@@ -6,7 +6,7 @@ datas = [
     ("air_cooler_main_core.py", "."),
     ("air_cooler_main_templates.json", "."),
     ("air_cooler_main_prefs.json", "."),
-    ("assets\\gas_cooler_schematic.svg", "assets"),
+    ("assets/gas_cooler_schematic.svg", "assets"),
 ]
 binaries = []
 hiddenimports = []

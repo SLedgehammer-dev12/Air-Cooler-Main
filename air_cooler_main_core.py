@@ -2,6 +2,13 @@ import numpy as np
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import AbstractState
 from pint import UnitRegistry
+import ht
+import fluids
+from fluids.geometry import AirCooledExchanger
+import hashlib
+import os
+import json
+from pathlib import Path
 
 APP_DISPLAY_NAME = "Air Cooler Main"
 APP_VERSION = "3.6.0"
@@ -18,6 +25,58 @@ ureg.define("MMscmd = 1e6 * meter**3 / day")
 Q_ = ureg.Quantity
 
 TEMP_UNIT_MAP = {"°C": "degC", "K": "K", "°F": "degF"}
+
+def generate_salt():
+    return os.urandom(16).hex()
+
+def hash_password(password, salt):
+    return hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
+
+def initialize_users_db(db_path):
+    path = Path(db_path)
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+            
+    admin_salt = generate_salt()
+    user_salt = generate_salt()
+    
+    users = {
+        "admin": {
+            "salt": admin_salt,
+            "hash": hash_password("admin123", admin_salt),
+            "role": "admin"
+        },
+        "user": {
+            "salt": user_salt,
+            "hash": hash_password("user123", user_salt),
+            "role": "user"
+        }
+    }
+    
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(users, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+        
+    return users
+
+def authenticate_user(username, password, users_db):
+    user_info = users_db.get(username.strip())
+    if not user_info:
+        return False, None
+    
+    salt = user_info["salt"]
+    stored_hash = user_info["hash"]
+    computed_hash = hash_password(password, salt)
+    
+    if computed_hash == stored_hash:
+        return True, user_info["role"]
+    return False, None
+
 
 COOLPROP_COMPONENTS = {
     "METHANE": "Metan (C1)",
@@ -491,3 +550,449 @@ class AirFinnedGasCooler:
 
         q_ideal_quantity = Q_(Q_ideal_watt, "watt") if Q_ideal_watt is not None else None
         return Q_(Q_watt, "watt"), q_ideal_quantity, faz_uyari
+
+    def get_mixture_transport_properties(self, P_Pa, T_K):
+        mw_mix = 0.0
+        visc_sum = 0.0
+        cond_sum = 0.0
+        for b, y_frac in self.mol_kompozisyon_coolprop.items():
+            try:
+                M = CP.PropsSI("M", b)
+                mw_mix += y_frac * M
+                v = CP.PropsSI("V", "P", P_Pa, "T", T_K, b)
+                c = CP.PropsSI("L", "P", P_Pa, "T", T_K, b)
+                visc_sum += y_frac * v
+                cond_sum += y_frac * c
+            except Exception:
+                mw = CP.PropsSI("M", b)
+                mw_mix += y_frac * mw
+                visc_sum += y_frac * 1.5e-5
+                cond_sum += y_frac * 0.025
+        
+        state = self._init_abstract_state()
+        state.update(CP.PT_INPUTS, P_Pa, T_K)
+        rho = state.rhomass()
+        cp = state.cpmass()
+        
+        return {
+            "viscosity": visc_sum if visc_sum > 0 else 1.5e-5,
+            "conductivity": cond_sum if cond_sum > 0 else 0.025,
+            "density": rho,
+            "cp": cp,
+            "mw": mw_mix
+        }
+
+    def hesapla_detayli_dizayn(
+        self,
+        m_dot_val,
+        m_dot_unit,
+        P_in_Q,
+        P_out_Q,
+        T_in_Q,
+        T_out_Q,
+        air_in_Q,
+        air_out_Q,
+        geom_params
+    ):
+        P_in_SI, T_in_SI = self._birim_cevir_P_T(P_in_Q, T_in_Q)
+        P_out_SI, _ = self._birim_cevir_P_T(P_out_Q, T_in_Q)
+        T_out_SI = T_out_Q.to("kelvin").m
+        m_dot_SI = self._birim_cevir_m_dot(m_dot_val, m_dot_unit, P_in_SI, T_in_SI)
+        
+        air_in_SI = air_in_Q.to("kelvin").m
+        air_out_SI = air_out_Q.to("kelvin").m
+        
+        T_avg_SI = (T_in_SI + T_out_SI) / 2.0
+        P_avg_SI = (P_in_SI + P_out_SI) / 2.0
+        
+        props_in = self.get_mixture_transport_properties(P_in_SI, T_in_SI)
+        props_out = self.get_mixture_transport_properties(P_out_SI, T_out_SI)
+        props_avg = self.get_mixture_transport_properties(P_avg_SI, T_avg_SI)
+        
+        H_in = self._h_at_pt(P_in_SI, T_in_SI)
+        H_out = self._h_at_pt(P_out_SI, T_out_SI)
+        Q_total_W = m_dot_SI * (H_in - H_out)
+        
+        T_air_avg = (air_in_SI + air_out_SI) / 2.0
+        rho_air = 101325.0 / (287.05 * T_air_avg)
+        Cp_air = 1007.0
+        mu_air = 1.85e-5
+        k_air = 0.0263
+        
+        m_dot_air = Q_total_W / (Cp_air * (air_out_SI - air_in_SI)) if (air_out_SI > air_in_SI) else 0.0
+        
+        AC = AirCooledExchanger(
+            tube_rows=geom_params['tube_rows'],
+            tube_passes=geom_params['tube_passes'],
+            tubes_per_row=geom_params['tubes_per_row'],
+            tube_length=geom_params['tube_length'],
+            tube_diameter=geom_params['tube_od'],
+            fin_thickness=geom_params['fin_thickness'],
+            fin_density=geom_params['fin_density'],
+            pitch=geom_params['pitch'],
+            angle=geom_params['angle'],
+            fin_height=geom_params['fin_height'],
+            tube_thickness=geom_params['tube_thickness']
+        )
+        
+        N_tubes_total = geom_params['tube_rows'] * geom_params['tubes_per_row']
+        
+        D_i = geom_params['tube_od'] - 2 * geom_params['tube_thickness']
+        A_flow_per_pass = (np.pi * D_i**2 / 4.0) * (N_tubes_total / geom_params['tube_passes'])
+        
+        G_process = m_dot_SI / A_flow_per_pass
+        v_process = G_process / props_avg['density']
+        
+        Re_process = G_process * D_i / props_avg['viscosity']
+        Pr_process = props_avg['cp'] * props_avg['viscosity'] / props_avg['conductivity']
+        
+        if Re_process < 2100:
+            Nu_process = 4.36
+        elif Re_process > 4000:
+            Nu_process = 0.023 * (Re_process**0.8) * (Pr_process**0.3)
+        else:
+            Nu_lam = 4.36
+            Nu_turb = 0.023 * (4000.0**0.8) * (Pr_process**0.3)
+            frac = (Re_process - 2100.0) / (4000.0 - 2100.0)
+            Nu_process = Nu_lam + frac * (Nu_turb - Nu_lam)
+            
+        h_inside = Nu_process * props_avg['conductivity'] / D_i
+        
+        h_o_bare_basis = ht.air_cooler.h_Briggs_Young(
+            m=m_dot_air,
+            A=AC.A,
+            A_min=AC.A_min,
+            A_increase=AC.A_increase,
+            A_fin=AC.A_fin,
+            A_tube_showing=AC.A_tube_showing,
+            tube_diameter=AC.tube_diameter,
+            fin_diameter=AC.fin_diameter,
+            bare_length=AC.bare_length,
+            fin_thickness=AC.fin_thickness,
+            rho=rho_air,
+            Cp=Cp_air,
+            mu=mu_air,
+            k=k_air,
+            k_fin=geom_params['fin_k']
+        )
+        
+        h_o_actual = h_o_bare_basis / AC.A_increase
+        
+        eta_fin = ht.air_cooler.fin_efficiency_Kern_Kraus(
+            Do=geom_params['tube_od'],
+            D_fin=AC.fin_diameter,
+            t_fin=geom_params['fin_thickness'],
+            k_fin=geom_params['fin_k'],
+            h=h_o_actual
+        )
+        
+        eta_o = 1.0 - (AC.A_fin / AC.A) * (1.0 - eta_fin)
+        
+        R_wall = (geom_params['tube_od'] * np.log(geom_params['tube_od'] / D_i) / (2.0 * geom_params['tube_k'])) * AC.A_increase
+        R_in = (geom_params['tube_od'] * AC.A_increase / (D_i * h_inside))
+        R_in_fouling = geom_params['fouling_in'] * (geom_params['tube_od'] * AC.A_increase / D_i)
+        R_out_fouling = geom_params['fouling_out']
+        R_out = 1.0 / (eta_o * h_o_actual)
+        
+        U_outside = 1.0 / (R_in + R_in_fouling + R_wall + R_out_fouling + R_out)
+        
+        try:
+            Ft = ht.air_cooler.Ft_aircooler(
+                Thi=T_in_SI,
+                Tho=T_out_SI,
+                Tci=air_in_SI,
+                Tco=air_out_SI,
+                Ntp=geom_params['tube_passes'],
+                rows=geom_params['tube_rows']
+            )
+            if np.isnan(Ft) or Ft <= 0:
+                Ft = 0.90
+        except Exception:
+            Ft = 0.90
+            
+        dT_hot = T_in_SI - air_out_SI
+        dT_cold = T_out_SI - air_in_SI
+        lmtd = self._calculate_lmtd(dT_hot, dT_cold)
+        effective_lmtd = Ft * lmtd
+        
+        UA_required = Q_total_W / effective_lmtd
+        Area_required = UA_required / U_outside
+        overdesign = (AC.A - Area_required) / Area_required * 100.0 if Area_required > 0 else 0.0
+        
+        dP_air = ht.air_cooler.dP_ESDU_high_fin(
+            m=m_dot_air,
+            A_min=AC.A_min,
+            A_increase=AC.A_increase,
+            flow_area_contraction_ratio=AC.flow_area_contraction_ratio,
+            tube_diameter=AC.tube_diameter,
+            pitch_parallel=AC.pitch_parallel,
+            pitch_normal=AC.pitch_normal,
+            tube_rows=AC.tube_rows,
+            rho=rho_air,
+            mu=mu_air
+        )
+        
+        V_air_m3_s = m_dot_air / rho_air
+        fan_power_W = (V_air_m3_s * dP_air) / geom_params['fan_efficiency']
+        
+        roughness = 4.5e-5
+        relative_roughness = roughness / D_i
+        f_friction = fluids.friction_factor(Re_process, eD=relative_roughness)
+        
+        L_total = geom_params['tube_length'] * geom_params['tube_passes']
+        dP_process_friction = f_friction * (L_total / D_i) * (props_avg['density'] * v_process**2 / 2.0)
+        K_minor = 1.5 * (geom_params['tube_passes'] - 1)
+        dP_process_minor = K_minor * (props_avg['density'] * v_process**2 / 2.0)
+        dP_process_total_Pa = dP_process_friction + dP_process_minor
+        
+        return {
+            "Q_kW": Q_total_W / 1000.0,
+            "U_W_m2K": U_outside,
+            "actual_area_m2": AC.A,
+            "required_area_m2": Area_required,
+            "overdesign_pct": overdesign,
+            "lmtd_K": lmtd,
+            "Ft": Ft,
+            "effective_lmtd_K": effective_lmtd,
+            "m_dot_air_kg_s": m_dot_air,
+            "V_air_m3_h": V_air_m3_s * 3600.0,
+            "dP_air_Pa": dP_air,
+            "fan_power_kW": fan_power_W / 1000.0,
+            "h_inside_W_m2K": h_inside,
+            "h_outside_actual_W_m2K": h_o_actual,
+            "fin_efficiency": eta_fin,
+            "surface_efficiency": eta_o,
+            "gas_velocity_m_s": v_process,
+            "gas_Re": Re_process,
+            "gas_dP_bar": dP_process_total_Pa / 1e5,
+            "gas_in_phase": self._gercek_faz_belirle(self._build_state_from_pt(P_in_SI, T_in_SI)),
+            "gas_out_phase": self._gercek_faz_belirle(self._build_state_from_pt(P_out_SI, T_out_SI))
+        }
+
+    def hesapla_degerlendirme_rating(
+        self,
+        m_dot_val,
+        m_dot_unit,
+        P_in_Q,
+        P_out_Q,
+        T_in_Q,
+        air_in_Q,
+        V_air_m3_h,
+        geom_params
+    ):
+        P_in_SI, T_in_SI = self._birim_cevir_P_T(P_in_Q, T_in_Q)
+        P_out_SI, _ = self._birim_cevir_P_T(P_out_Q, T_in_Q)
+        m_dot_SI = self._birim_cevir_m_dot(m_dot_val, m_dot_unit, P_in_SI, T_in_SI)
+        air_in_SI = air_in_Q.to("kelvin").m
+        
+        rho_air = 101325.0 / (287.05 * air_in_SI)
+        Cp_air = 1007.0
+        mu_air = 1.85e-5
+        k_air = 0.0263
+        
+        m_dot_air = (V_air_m3_h / 3600.0) * rho_air
+        
+        props_in = self.get_mixture_transport_properties(P_in_SI, T_in_SI)
+        
+        C_gas = m_dot_SI * props_in['cp']
+        C_air = m_dot_air * Cp_air
+        
+        C_min = min(C_gas, C_air)
+        C_max = max(C_gas, C_air)
+        Cr = C_min / C_max if C_max > 0 else 0.0
+        
+        AC = AirCooledExchanger(
+            tube_rows=geom_params['tube_rows'],
+            tube_passes=geom_params['tube_passes'],
+            tubes_per_row=geom_params['tubes_per_row'],
+            tube_length=geom_params['tube_length'],
+            tube_diameter=geom_params['tube_od'],
+            fin_thickness=geom_params['fin_thickness'],
+            fin_density=geom_params['fin_density'],
+            pitch=geom_params['pitch'],
+            angle=geom_params['angle'],
+            fin_height=geom_params['fin_height'],
+            tube_thickness=geom_params['tube_thickness']
+        )
+        
+        N_tubes_total = geom_params['tube_rows'] * geom_params['tubes_per_row']
+        
+        D_i = geom_params['tube_od'] - 2 * geom_params['tube_thickness']
+        A_flow_per_pass = (np.pi * D_i**2 / 4.0) * (N_tubes_total / geom_params['tube_passes'])
+        G_process = m_dot_SI / A_flow_per_pass
+        Re_process = G_process * D_i / props_in['viscosity']
+        Pr_process = props_in['cp'] * props_in['viscosity'] / props_in['conductivity']
+        
+        if Re_process < 2100:
+            Nu_process = 4.36
+        elif Re_process > 4000:
+            Nu_process = 0.023 * (Re_process**0.8) * (Pr_process**0.3)
+        else:
+            Nu_lam = 4.36
+            Nu_turb = 0.023 * (4000.0**0.8) * (Pr_process**0.3)
+            frac = (Re_process - 2100.0) / (4000.0 - 2100.0)
+            Nu_process = Nu_lam + frac * (Nu_turb - Nu_lam)
+            
+        h_inside = Nu_process * props_in['conductivity'] / D_i
+        
+        h_o_bare_basis = ht.air_cooler.h_Briggs_Young(
+            m=m_dot_air,
+            A=AC.A,
+            A_min=AC.A_min,
+            A_increase=AC.A_increase,
+            A_fin=AC.A_fin,
+            A_tube_showing=AC.A_tube_showing,
+            tube_diameter=AC.tube_diameter,
+            fin_diameter=AC.fin_diameter,
+            bare_length=AC.bare_length,
+            fin_thickness=AC.fin_thickness,
+            rho=rho_air,
+            Cp=Cp_air,
+            mu=mu_air,
+            k=k_air,
+            k_fin=geom_params['fin_k']
+        )
+        h_o_actual = h_o_bare_basis / AC.A_increase
+        
+        eta_fin = ht.air_cooler.fin_efficiency_Kern_Kraus(
+            Do=geom_params['tube_od'],
+            D_fin=AC.fin_diameter,
+            t_fin=geom_params['fin_thickness'],
+            k_fin=geom_params['fin_k'],
+            h=h_o_actual
+        )
+        eta_o = 1.0 - (AC.A_fin / AC.A) * (1.0 - eta_fin)
+        
+        R_wall = (geom_params['tube_od'] * np.log(geom_params['tube_od'] / D_i) / (2.0 * geom_params['tube_k'])) * AC.A_increase
+        R_in = (geom_params['tube_od'] * AC.A_increase / (D_i * h_inside))
+        R_in_fouling = geom_params['fouling_in'] * (geom_params['tube_od'] * AC.A_increase / D_i)
+        R_out_fouling = geom_params['fouling_out']
+        R_out = 1.0 / (eta_o * h_o_actual)
+        
+        U_outside = 1.0 / (R_in + R_in_fouling + R_wall + R_out_fouling + R_out)
+        
+        NTU = U_outside * AC.A / C_min if C_min > 0 else 0.0
+        
+        if NTU > 0 and C_min > 0:
+            epsilon = ht.effectiveness_from_NTU(NTU, Cr, subtype='crossflow approximate')
+        else:
+            epsilon = 0.0
+            
+        Q_actual_W = epsilon * C_min * (T_in_SI - air_in_SI)
+        
+        T_gas_out_SI = T_in_SI - Q_actual_W / C_gas if C_gas > 0 else T_in_SI
+        T_air_out_SI = air_in_SI + Q_actual_W / C_air if C_air > 0 else air_in_SI
+        
+        T_gas_avg = (T_in_SI + T_gas_out_SI) / 2.0
+        T_air_avg = (air_in_SI + T_air_out_SI) / 2.0
+        
+        P_avg_SI = (P_in_SI + P_out_SI) / 2.0
+        props_avg = self.get_mixture_transport_properties(P_avg_SI, T_gas_avg)
+        rho_air_avg = 101325.0 / (287.05 * T_air_avg)
+        
+        C_gas = m_dot_SI * props_avg['cp']
+        C_min = min(C_gas, C_air)
+        C_max = max(C_gas, C_air)
+        Cr = C_min / C_max if C_max > 0 else 0.0
+        
+        Re_process = G_process * D_i / props_avg['viscosity']
+        Pr_process = props_avg['cp'] * props_avg['viscosity'] / props_avg['conductivity']
+        
+        if Re_process < 2100:
+            Nu_process = 4.36
+        elif Re_process > 4000:
+            Nu_process = 0.023 * (Re_process**0.8) * (Pr_process**0.3)
+        else:
+            Nu_lam = 4.36
+            Nu_turb = 0.023 * (4000.0**0.8) * (Pr_process**0.3)
+            frac = (Re_process - 2100.0) / (4000.0 - 2100.0)
+            Nu_process = Nu_lam + frac * (Nu_turb - Nu_lam)
+            
+        h_inside = Nu_process * props_avg['conductivity'] / D_i
+        
+        h_o_bare_basis = ht.air_cooler.h_Briggs_Young(
+            m=m_dot_air,
+            A=AC.A,
+            A_min=AC.A_min,
+            A_increase=AC.A_increase,
+            A_fin=AC.A_fin,
+            A_tube_showing=AC.A_tube_showing,
+            tube_diameter=AC.tube_diameter,
+            fin_diameter=AC.fin_diameter,
+            bare_length=AC.bare_length,
+            fin_thickness=AC.fin_thickness,
+            rho=rho_air_avg,
+            Cp=Cp_air,
+            mu=mu_air,
+            k=k_air,
+            k_fin=geom_params['fin_k']
+        )
+        h_o_actual = h_o_bare_basis / AC.A_increase
+        
+        eta_fin = ht.air_cooler.fin_efficiency_Kern_Kraus(
+            Do=geom_params['tube_od'],
+            D_fin=AC.fin_diameter,
+            t_fin=geom_params['fin_thickness'],
+            k_fin=geom_params['fin_k'],
+            h=h_o_actual
+        )
+        eta_o = 1.0 - (AC.A_fin / AC.A) * (1.0 - eta_fin)
+        
+        R_wall = (geom_params['tube_od'] * np.log(geom_params['tube_od'] / D_i) / (2.0 * geom_params['tube_k'])) * AC.A_increase
+        R_in = (geom_params['tube_od'] * AC.A_increase / (D_i * h_inside))
+        R_in_fouling = geom_params['fouling_in'] * (geom_params['tube_od'] * AC.A_increase / D_i)
+        R_out_fouling = geom_params['fouling_out']
+        R_out = 1.0 / (eta_o * h_o_actual)
+        
+        U_outside = 1.0 / (R_in + R_in_fouling + R_wall + R_out_fouling + R_out)
+        
+        NTU = U_outside * AC.A / C_min if C_min > 0 else 0.0
+        if NTU > 0 and C_min > 0:
+            epsilon = ht.effectiveness_from_NTU(NTU, Cr, subtype='crossflow approximate')
+        else:
+            epsilon = 0.0
+            
+        Q_actual_W = epsilon * C_min * (T_in_SI - air_in_SI)
+        T_gas_out_SI = T_in_SI - Q_actual_W / C_gas if C_gas > 0 else T_in_SI
+        T_air_out_SI = air_in_SI + Q_actual_W / C_air if C_air > 0 else air_in_SI
+        
+        dP_air = ht.air_cooler.dP_ESDU_high_fin(
+            m=m_dot_air,
+            A_min=AC.A_min,
+            A_increase=AC.A_increase,
+            flow_area_contraction_ratio=AC.flow_area_contraction_ratio,
+            tube_diameter=AC.tube_diameter,
+            pitch_parallel=AC.pitch_parallel,
+            pitch_normal=AC.pitch_normal,
+            tube_rows=AC.tube_rows,
+            rho=rho_air_avg,
+            mu=mu_air
+        )
+        
+        roughness = 4.5e-5
+        relative_roughness = roughness / D_i
+        v_process = G_process / props_avg['density']
+        f_friction = fluids.friction_factor(Re_process, eD=relative_roughness)
+        L_total = geom_params['tube_length'] * geom_params['tube_passes']
+        dP_process_friction = f_friction * (L_total / D_i) * (props_avg['density'] * v_process**2 / 2.0)
+        K_minor = 1.5 * (geom_params['tube_passes'] - 1)
+        dP_process_minor = K_minor * (props_avg['density'] * v_process**2 / 2.0)
+        dP_process_total_Pa = dP_process_friction + dP_process_minor
+        
+        return {
+            "Q_kW": Q_actual_W / 1000.0,
+            "T_gas_out_C": T_gas_out_SI - 273.15,
+            "T_air_out_C": T_air_out_SI - 273.15,
+            "U_W_m2K": U_outside,
+            "effectiveness": epsilon,
+            "NTU": NTU,
+            "dP_air_Pa": dP_air,
+            "gas_dP_bar": dP_process_total_Pa / 1e5,
+            "gas_velocity_m_s": v_process,
+            "gas_Re": Re_process,
+            "h_inside_W_m2K": h_inside,
+            "h_outside_actual_W_m2K": h_o_actual,
+            "fin_efficiency": eta_fin,
+            "surface_efficiency": eta_o,
+            "gas_out_phase": self._gercek_faz_belirle(self._build_state_from_pt(P_out_SI, T_gas_out_SI))
+        }

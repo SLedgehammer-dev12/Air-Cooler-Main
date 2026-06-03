@@ -15,11 +15,11 @@ Bu dosya yeni bir oturum açıldığında projeye hızlı ve tutarlı şekilde d
 
 ## Güncel Durum
 
-Tarih: 2026-04-15
+Tarih: 2026-06-03
 
 Kalıcı çalışma klasörü:
 
-- `D:\İş\Çalışan programlar\@Güncelleme\Natural gas Air Cooler\Air Cooler\Air Cooler Main`
+- `/Users/macbook/Documents/Kodlama/Air-Cooler-Main`
 
 Ana teknik durum:
 
@@ -27,46 +27,34 @@ Ana teknik durum:
 - iki-faz belirsizlik koruması var
 - UA / LMTD / gerekli alan ön boyutlandırması var
 - şematik giriş ekranı A1/A2/B1/B2/C1 bölgeleri ile kurulmuş durumda
-- Windows standalone paket üretildi ve çalıştığı doğrulandı
-- GitHub repo ve release yayınlandı
+- Güvenli Giriş Sistemi (Admin & User Rolleri, SHA-256 + Tuzlama) aktif hale getirildi.
+- Gelişmiş 3-Kademeli Boyutlandırma ve Değerlendirme sekmesi (`📐 Gelişmiş Boyutlandırma`) eklendi ve admin rolüne kısıtlandı.
+- Test kapsamı %91'e yükseltildi (13 birim testi başarıyla geçiyor).
+- macOS standalone paket üretildi ve çalıştığı doğrulandı.
 
 ## Son Bu Oturumda Yapılanlar
 
-1. Gas cooler çizimi eklendi.
-2. Giriş ekranı şema etrafında yeniden düzenlendi.
-3. `3.6.0` sürümü için PyInstaller paketi üretildi.
-4. Standalone paket smoke test ile doğrulandı.
-5. `SLedgehammer-dev12/Air-Cooler-Main` public repo oluşturuldu.
-6. `v3.6.0` release açıldı ve Windows zip paketi yüklendi.
+1. Güvenli giriş, tuzlama ve doğrulama motoru eklendi.
+2. Rol tabanlı UI kısıtlamaları kuruldu.
+3. Test kapsamı %91'e çıkarılarak auth ve birim dönüşüm dalları test edildi.
+4. Spec dosyasında macOS uyumluluk düzeltmesi yapıldı.
+5. macOS için PyInstaller standalone paketi başarıyla derlendi.
 
 ## Doğrulama Özeti
 
-- `.\.venv\Scripts\python -m unittest tests\test_air_cooler_main.py` -> `5 tests OK`
-- headless Streamlit health -> `ok`
-- packaged launcher smoke test -> `health=ok`, `root=200`
+- `python3 -m unittest tests/test_air_cooler_main.py` -> `13 tests OK`
+- `coverage report -m` -> `TOTAL: 91% coverage`
+- packaged launcher macOS smoke test -> `build complete, standalone folder ready`
 
 ## Repo ve Release Bilgisi
 
 - Repo: `https://github.com/SLedgehammer-dev12/Air-Cooler-Main`
-- Release: `https://github.com/SLedgehammer-dev12/Air-Cooler-Main/releases/tag/v3.6.0`
-- Commit: `2555d8cda50c414d76fb5f286008ba729e7e4dac`
-- Release asset SHA-256: `10EC5A4403EE005E116C026A180BAADFB00D4EF26EBB201E7C14AA9BC0CCFD71`
 
 ## Bir Sonraki Mantıklı Adım
 
-`air_cooler_main_core.py` üzerine hava tarafı mühendislik modelini eklemek:
-
-1. hava debisi
-2. fan gücü
-3. face velocity
-4. air-side pressure drop
+1. Streamlit login arayüzünün görünümünü zenginleştirmek (CSS özelleştirmeleri, glassmorphism vb.).
+2. admin/user rollerinin dinamik yönetilmesi için kullanıcı ekleme/çıkarma arayüzü eklemek.
 
 ## Paket Notu
 
-Release edilen dağıtım tek başına sadece `.exe` değildir. Kullanıcıya dağıtılacak doğru artefakt:
-
-- `AirCooler_Main-v3.6.0-windows-x64.zip`
-
-Bu zip açıldıktan sonra:
-
-- `AirCooler_Main.exe` dosyası, aynı klasördeki `_internal` ile birlikte çalıştırılmalıdır.
+macOS dağıtımı için `dist/AirCooler_Main` klasörü içindeki `AirCooler_Main` çalıştırılabilir dosyası, aynı klasördeki `_internal` diziniyle birlikte dağıtılmalıdır.

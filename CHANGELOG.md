@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 3.7.0 - 2026-06-03
+
+- **Güvenli Giriş Sistemi:** Şifreleri SHA-256 + Tuzlama (Salt) ile saklayan ve doğrulayan giriş altyapısı eklendi.
+- **Rol Tabanlı Arayüz (admin/user):** Gelişmiş boyutlandırma sekmesi (`📐 Gelişmiş Boyutlandırma`) yalnızca `admin` kullanıcısına görünür hale getirildi, `user` yetkileri kısıtlandı.
+- **Gelişmiş Çapraz Akış Sizing ve Rating Modülleri:** Briggs-Young ısı transfer katsayısı, ESDU hava tarafı basınç kaybı ve fan motor gücü hesaplamaları entegre edildi.
+- **Test ve Kapsam Artışı:** Yeni birim testleri ile test coverage oranı %91'e yükseltildi.
+- **macOS standalone Paket Desteği:** PyInstaller yapılandırması çapraz platform (Windows/macOS) uyumlu hale getirilerek macOS standalone paketi başarıyla derlendi.
+
 ## 3.6.0 - 2026-04-15
 
 - Giriş ekranı, gas cooler şeması etrafındaki A1/A2/B1/B2/C1 kartları ile yeniden tasarlandı.

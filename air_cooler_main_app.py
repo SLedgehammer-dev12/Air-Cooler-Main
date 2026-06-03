@@ -20,6 +20,8 @@ from air_cooler_main_core import (
     UNITS,
     clean_pressure_unit,
     clean_temp_unit,
+    initialize_users_db,
+    authenticate_user,
 )
 
 APP_DIR = Path(__file__).resolve().parent
@@ -29,6 +31,7 @@ TEMPLATES_FILE = APP_DIR / "air_cooler_main_templates.json"
 SCHEMATIC_FILE = ASSETS_DIR / "gas_cooler_schematic.svg"
 USER_DATA_DIR = Path(os.getenv("APPDATA", str(Path.home()))) / APP_DISPLAY_NAME
 PREFS_FILE = USER_DATA_DIR / "air_cooler_main_prefs.json"
+USERS_FILE = USER_DATA_DIR / "air_cooler_users.json"
 DEFAULT_PREFS = {"theme": "Otomatik", "hide_release_notes_version": ""}
 GLOBAL_CSS = """
     <style>
@@ -131,12 +134,20 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "role" not in st.session_state:
+    st.session_state.role = ""
 if "kompozisyon" not in st.session_state:
     st.session_state.kompozisyon = {}
 if "P_ATM_PA" not in st.session_state:
     st.session_state.P_ATM_PA = DEFAULT_ATM_PRESSURE_PA
 if "log_records" not in st.session_state:
     st.session_state.log_records = []
+
+users_db = initialize_users_db(USERS_FILE)
 
 
 def log_message(level, message, exception=None):
@@ -329,6 +340,17 @@ def draw_sidebar():
     )
     st.session_state.P_ATM_PA = Q_(p_atm, "mbar").to("pascal").m
 
+    if st.session_state.authenticated:
+        st.sidebar.divider()
+        st.sidebar.subheader("👤 Kullanıcı")
+        st.sidebar.write(f"**Giriş yapan:** {st.session_state.username}")
+        st.sidebar.write(f"**Rol:** {st.session_state.role.upper()}")
+        if st.sidebar.button("🚪 Çıkış Yap"):
+            st.session_state.authenticated = False
+            st.session_state.username = ""
+            st.session_state.role = ""
+            st.rerun()
+
 
 def draw_zone_analysis(ara):
     bolgeler = ara.get("bolgeler", [])
@@ -455,12 +477,424 @@ def draw_release_notes():
     show_notes()
 
 
+def draw_login_page():
+    st.markdown(GLOBAL_CSS, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<div style='height: 4rem;'></div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("<h2 style='text-align: center;'>🔐 Gaz Soğutucu Girişi</h2>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; opacity: 0.8;'>Lütfen kullanıcı adı ve şifrenizle giriş yapın.</p>", unsafe_allow_html=True)
+            st.divider()
+            
+            username_input = st.text_input("Kullanıcı Adı", placeholder="admin veya user")
+            password_input = st.text_input("Şifre", type="password", placeholder="••••••••")
+            
+            if st.button("Giriş Yap", type="primary", use_container_width=True):
+                success, role = authenticate_user(username_input, password_input, users_db)
+                if success:
+                    st.session_state.authenticated = True
+                    st.session_state.username = username_input.strip()
+                    st.session_state.role = role
+                    st.success("Giriş başarılı! Yönlendiriliyorsunuz...")
+                    st.rerun()
+                else:
+                    st.error("Hatalı kullanıcı adı veya şifre!")
+
+
+def draw_advanced_design():
+    st.subheader("📐 Gelişmiş 3-Kademeli Tasarım & Değerlendirme")
+    st.caption("Doğal gaz karışımları için çapraz akış (cross-flow) modellemesi, Briggs-Young ısı geçişi ve ESDU basınç kaybı hesaplama motoru.")
+    
+    if not st.session_state.get("kompozisyon"):
+        st.warning("⚠️ Akışkan bileşimi henüz girilmedi. Lütfen '⚙️ Girişler' sekmesinden en az bir gaz bileşeni ekleyin.")
+        return
+        
+    total_comp = sum(v["yuzde"] for v in st.session_state.kompozisyon.values())
+    if abs(total_comp - 100.0) > 0.01:
+        st.warning(f"⚠️ Karışım bileşeni toplamı %{total_comp:.2f}. Hesaplama yapabilmek için toplam tam %100 olmalıdır.")
+        return
+
+    # 1. Proses Girdileri (Ortak)
+    with st.container(border=True):
+        st.markdown("**🔄 Proses İşletme Şartları**")
+        p_col1, p_col2, p_col3, p_col4 = st.columns(4)
+        with p_col1:
+            adv_t_unit = st.selectbox("Sıcaklık Birimi", UNITS["Sıcaklık"], key="adv_t_u")
+        with p_col2:
+            adv_p_unit = st.selectbox("Basınç Birimi", UNITS["Basınç"], key="adv_p_u")
+        with p_col3:
+            adv_flow_u = st.selectbox("Debi Birimi", UNITS["Akış Miktarı"], key="adv_flow_u")
+        with p_col4:
+            adv_eos_str = st.selectbox("Motor (EOS)", list(EOS_OPTIONS.keys()), key="adv_eos_str")
+
+        p_col5, p_col6, p_col7, p_col8 = st.columns(4)
+        with p_col5:
+            adv_flow_v = st.number_input("Gaz Debisi", min_value=0.0, value=15.0, key="adv_flow_v")
+        with p_col6:
+            adv_p_in = st.number_input("Giriş Basıncı", min_value=0.0, value=60.0, key="adv_p_in")
+        with p_col7:
+            min_temp = {"°C": -273.15, "K": 0.0, "°F": -459.67}[adv_t_unit]
+            default_in = 100.0 if adv_t_unit != "K" else 373.15
+            adv_t_in = st.number_input("Giriş Sıcaklığı", min_value=min_temp, value=default_in, key="adv_t_in")
+        with p_col8:
+            default_out = 40.0 if adv_t_unit != "K" else 313.15
+            adv_t_out = st.number_input("Çıkış Sıcaklığı (Boyutlandırma için)", min_value=min_temp, value=default_out, key="adv_t_out")
+            
+        adv_p_out = st.number_input("Çıkış Basıncı", min_value=0.0, value=adv_p_in - 1.0, key="adv_p_out")
+
+    # 2. Mod Seçimi ve Özel Girdiler
+    mode = st.radio("Çalışma Modu Seçin", ["Basit Dizayn (Teorik Isı Yükü)", "Detaylı Boyutlandırma (Sizing)", "Eşanjör Değerlendirme (Rating)"], horizontal=True)
+    
+    if mode == "Basit Dizayn (Teorik Isı Yükü)":
+        st.info("ℹ️ **Basit Dizayn Modu:** Bu modülde, girilen doğalgaz karışımının verilen şartlardan çıkış şartlarına soğutulması için gereken teorik ısı geçiş miktarı hesaplanır. Akış tipi **Cross-flow (Çapraz Akış - Karışmayan Akışkanlar)** olarak kabul edilir.")
+        
+        with st.container(border=True):
+            st.markdown("**💨 Hava Tarafı ve Tasarım Parametreleri**")
+            b_col1, b_col2, b_col3, b_col4 = st.columns(4)
+            with b_col1:
+                default_air_in = 25.0 if adv_t_unit != "K" else 298.15
+                adv_air_in = st.number_input("Hava Giriş Sıc.", min_value=min_temp, value=default_air_in, key="adv_air_in_b")
+            with b_col2:
+                default_air_out = 45.0 if adv_t_unit != "K" else 318.15
+                adv_air_out = st.number_input("Hava Çıkış Sıc.", min_value=min_temp, value=default_air_out, key="adv_air_out_b")
+            with b_col3:
+                adv_rows = st.number_input("Tüp Sıra Sayısı", min_value=1, max_value=8, value=4, key="adv_rows_b")
+            with b_col4:
+                adv_passes = st.number_input("Geçiş Sayısı", min_value=1, max_value=8, value=4, key="adv_passes_b")
+
+        if st.button("🚀 BASİT DİZAYN HESAPLA", type="primary", use_container_width=True):
+            if adv_t_in <= adv_t_out:
+                st.error("Proses giriş sıcaklığı çıkış sıcaklığından büyük olmalıdır.")
+                return
+            if adv_air_out <= adv_air_in:
+                st.error("Hava çıkış sıcaklığı giriş sıcaklığından büyük olmalıdır.")
+                return
+            if (adv_t_in - adv_air_out) <= 0 or (adv_t_out - adv_air_in) <= 0:
+                st.error("LMTD için sıcaklıklar fiziksel değil! Giriş sıcaklıkları yaklaşım sınırını aşıyor.")
+                return
+                
+            try:
+                p_in_q = Q_(adv_p_in, clean_pressure_unit(adv_p_unit))
+                p_out_q = Q_(adv_p_out, clean_pressure_unit(adv_p_unit))
+                t_in_q = Q_(adv_t_in, clean_temp_unit(adv_t_unit))
+                t_out_q = Q_(adv_t_out, clean_temp_unit(adv_t_unit))
+                air_in_q = Q_(adv_air_in, clean_temp_unit(adv_t_unit))
+                air_out_q = Q_(adv_air_out, clean_temp_unit(adv_t_unit))
+                
+                cooler = AirFinnedGasCooler(
+                    st.session_state.kompozisyon,
+                    EOS_OPTIONS[adv_eos_str],
+                    adv_p_unit,
+                    atmospheric_pressure_pa=st.session_state.P_ATM_PA,
+                    logger=log_message,
+                )
+                
+                q_g, q_i, uyari = cooler.hesapla_isi_yuku(
+                    adv_flow_v,
+                    adv_flow_u,
+                    p_in_q,
+                    p_out_q,
+                    t_in_q,
+                    t_out_q,
+                    air_sizing_inputs={
+                        "air_in_q": air_in_q,
+                        "air_out_q": air_out_q,
+                        "overall_u_w_m2k": 35.0,
+                        "correction_factor": 0.9
+                    }
+                )
+                
+                Thi = t_in_q.to("kelvin").m
+                Tho = t_out_q.to("kelvin").m
+                Tci = air_in_q.to("kelvin").m
+                Tco = air_out_q.to("kelvin").m
+                Ft = ht.air_cooler.Ft_aircooler(Thi=Thi, Tho=Tho, Tci=Tci, Tco=Tco, Ntp=int(adv_passes), rows=int(adv_rows))
+                
+                lmtd_val = cooler.ara_sonuclar["tasarim"]["lmtd_K"]
+                eff_lmtd = lmtd_val * Ft
+                
+                st.success("✅ Basit Dizayn Hesaplaması Tamamlandı!")
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                col_m1.metric("Gerekli Isı Transfer Yükü", f"{q_g.to('MW').m:.4f} MW", border=True)
+                col_m2.metric("LMTD", f"{lmtd_val:.2f} K", border=True)
+                col_m3.metric("LMTD Düzeltme Faktörü (F)", f"{Ft:.4f}", border=True)
+                
+                st.metric("Efektif LMTD (F * LMTD)", f"{eff_lmtd:.2f} K", border=True)
+                
+                st.info(f"**Faz Durumları:** Giriş Fazı: **{cooler.ara_sonuclar['faz_in']}**, Çıkış Fazı: **{cooler.ara_sonuclar['faz_out']}**")
+                
+                draw_zone_analysis(cooler.ara_sonuclar)
+                
+            except Exception as e:
+                st.error(f"Hesaplama hatası: {e}")
+                log_error("Basit dizayn hesaplama hatası.", e)
+
+    elif mode == "Detaylı Boyutlandırma (Sizing)":
+        st.info("📐 **Detaylı Boyutlandırma Modu:** Bu modülde, proses debisini soğutmak için gerekli olan fiziksel alan, boru içi/hava tarafı film ısı iletim katsayıları ($h_i, h_o$), fin verimliliği, toplam ısı iletim katsayısı ($U$), gerekli hava debisi ve fan güç gereksinimleri standart geometrik parametrelere göre hesaplanır.")
+        
+        with st.container(border=True):
+            st.markdown("**📐 Eşanjör Geometrisi & Finli Boru Girdileri**")
+            g_col1, g_col2, g_col3, g_col4 = st.columns(4)
+            with g_col1:
+                tube_od = st.number_input("Boru Dış Çapı (mm)", min_value=5.0, max_value=100.0, value=25.4, help="API 661 standardı için minimum 25.4 mm (1 inç) veya 20 mm önerilir.")
+                tube_thick = st.number_input("Boru Duvar Kalınlığı (mm)", min_value=0.5, max_value=10.0, value=2.11, help="14 BWG standardı: 2.11 mm")
+            with g_col2:
+                tube_len = st.number_input("Boru Boyu (m)", min_value=1.0, max_value=24.0, value=6.0)
+                tubes_per_row = st.number_input("Sıra Başına Boru Sayısı", min_value=5, max_value=200, value=24)
+            with g_col3:
+                tube_rows = st.number_input("Boru Sıra Sayısı", min_value=1, max_value=12, value=4, key="rows_size")
+                tube_passes = st.number_input("Akış Geçiş Sayısı", min_value=1, max_value=12, value=4, key="passes_size")
+            with g_col4:
+                layout_angle = st.selectbox("Dizilim Açısı", [30, 90], format_func=lambda x: "30° (Üçgen)" if x == 30 else "90° (Kare)")
+                pitch_normal = st.number_input("Boru Eksene Adımı (mm)", min_value=10.0, max_value=200.0, value=63.5, help="Tüplerin merkezleri arasındaki mesafe. 2.5 inç standardı: 63.5 mm")
+
+            g_col5, g_col6, g_col7, g_col8 = st.columns(4)
+            with g_col5:
+                fin_height = st.number_input("Kanatçık Yüksekliği (mm)", min_value=2.0, max_value=50.0, value=15.9, help="0.625 inç standardı: 15.9 mm")
+                fin_thick = st.number_input("Kanatçık Kalınlığı (mm)", min_value=0.1, max_value=5.0, value=0.4)
+            with g_col6:
+                fin_fpi = st.number_input("İnç Başına Kanatçık (FPI)", min_value=2.0, max_value=30.0, value=10.0)
+            with g_col7:
+                tube_mat = st.selectbox("Boru Malzemesi (İletkenlik)", ["Karbon Çelik (50 W/mK)", "Paslanmaz Çelik (15 W/mK)", "Bakır (385 W/mK)"])
+                fin_mat = st.selectbox("Kanatçık Malzemesi (İletkenlik)", ["Alüminyum (205 W/mK)", "Bakır (385 W/mK)"])
+            with g_col8:
+                fouling_in = st.number_input("Boru İçi Kirlenme (m²K/W)", min_value=0.0, value=0.000176, format="%.6f", help="TEMA standardı doğalgaz kirlenme katsayısı: 0.000176")
+                fouling_out = st.number_input("Hava Kirlenme Katsayısı (m²K/W)", min_value=0.0, value=0.000088, format="%.6f")
+
+            g_col9, g_col10, g_col11 = st.columns(3)
+            with g_col9:
+                fan_eff = st.number_input("Fan Toplam Verimi (%)", min_value=10.0, max_value=100.0, value=65.0) / 100.0
+            with g_col10:
+                default_air_in_s = 25.0 if adv_t_unit != "K" else 298.15
+                air_in_s = st.number_input("Tasarım Hava Giriş Sıcaklığı", min_value=min_temp, value=default_air_in_s, key="air_in_s")
+            with g_col11:
+                default_air_out_s = 45.0 if adv_t_unit != "K" else 318.15
+                air_out_s = st.number_input("Tasarım Hava Çıkış Sıcaklığı", min_value=min_temp, value=default_air_out_s, key="air_out_s")
+
+        if st.button("🚀 BOYUTLANDIRMA HESAPLA", type="primary", use_container_width=True):
+            if adv_t_in <= adv_t_out:
+                st.error("Proses giriş sıcaklığı çıkış sıcaklığından büyük olmalıdır.")
+                return
+            if air_out_s <= air_in_s:
+                st.error("Hava çıkış sıcaklığı giriş sıcaklığından büyük olmalıdır.")
+                return
+                
+            try:
+                k_tube = 50.0 if "Karbon" in tube_mat else (15.0 if "Paslanmaz" in tube_mat else 385.0)
+                k_fin = 205.0 if "Alüminyum" in fin_mat else 385.0
+                
+                geom_params = {
+                    "tube_rows": int(tube_rows),
+                    "tube_passes": int(tube_passes),
+                    "tubes_per_row": int(tubes_per_row),
+                    "tube_length": float(tube_len),
+                    "tube_od": float(tube_od / 1000.0),
+                    "tube_thickness": float(tube_thick / 1000.0),
+                    "fin_height": float(fin_height / 1000.0),
+                    "fin_thickness": float(fin_thick / 1000.0),
+                    "fin_density": float(fin_fpi * 39.37),
+                    "pitch": float(pitch_normal / 1000.0),
+                    "angle": float(layout_angle),
+                    "tube_k": k_tube,
+                    "fin_k": k_fin,
+                    "fouling_in": fouling_in,
+                    "fouling_out": fouling_out,
+                    "fan_efficiency": fan_eff
+                }
+                
+                cooler = AirFinnedGasCooler(
+                    st.session_state.kompozisyon,
+                    EOS_OPTIONS[adv_eos_str],
+                    adv_p_unit,
+                    atmospheric_pressure_pa=st.session_state.P_ATM_PA,
+                    logger=log_message,
+                )
+                
+                p_in_q = Q_(adv_p_in, clean_pressure_unit(adv_p_unit))
+                p_out_q = Q_(adv_p_out, clean_pressure_unit(adv_p_unit))
+                t_in_q = Q_(adv_t_in, clean_temp_unit(adv_t_unit))
+                t_out_q = Q_(adv_t_out, clean_temp_unit(adv_t_unit))
+                air_in_q = Q_(air_in_s, clean_temp_unit(adv_t_unit))
+                air_out_q = Q_(air_out_s, clean_temp_unit(adv_t_unit))
+                
+                res = cooler.hesapla_detayli_dizayn(
+                    m_dot_val=adv_flow_v,
+                    m_dot_unit=adv_flow_u,
+                    P_in_Q=p_in_q,
+                    P_out_Q=p_out_q,
+                    T_in_Q=t_in_q,
+                    T_out_Q=t_out_q,
+                    air_in_Q=air_in_q,
+                    air_out_Q=air_out_q,
+                    geom_params=geom_params
+                )
+                
+                st.success("✅ Detaylı Boyutlandırma Hesaplaması Tamamlandı!")
+                
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                m_col1.metric("Toplam Yük (Q)", f"{res['Q_kW'] / 1000.0:.4f} MW", border=True)
+                m_col2.metric("Toplam Eşanjör Alanı", f"{res['actual_area_m2']:.2f} m²", border=True)
+                m_col3.metric("Gerekli Alan", f"{res['required_area_m2']:.2f} m²", border=True)
+                m_col4.metric("Overdesign %", f"{res['overdesign_pct']:.2f} %", border=True)
+                
+                d_col1, d_col2 = st.columns(2)
+                with d_col1:
+                    with st.container(border=True):
+                        st.markdown("**🔬 Isı Geçiş Performansı & Dirençler**")
+                        st.write(f"**U Katsayısı (Toplam):** {res['U_W_m2K']:.2f} W/(m²·K)")
+                        st.write(f"**Boru İçi Film Katsayısı (hi):** {res['h_inside_W_m2K']:.2f} W/(m²·K)")
+                        st.write(f"**Dış Film Katsayısı (ho - fin dahil):** {res['h_outside_actual_W_m2K']:.2f} W/(m²·K)")
+                        st.write(f"**Kanatçık Verimi (Fin Efficiency):** {res['fin_efficiency'] * 100:.2f} %")
+                        st.write(f"**Yüzey Verimi (Surface Efficiency):** {res['surface_efficiency'] * 100:.2f} %")
+                        st.write(f"**LMTD / Ft Faktörü:** {res['lmtd_K']:.2f} K / {res['Ft']:.4f}")
+                with d_col2:
+                    with st.container(border=True):
+                        st.markdown("**💨 Hava Tarafı & Fan Güç Hesapları**")
+                        st.write(f"**Gerekli Hava Debisi:** {res['m_dot_air_kg_s']:.2f} kg/s ({res['V_air_m3_h']:.2f} m³/h)")
+                        st.write(f"**Hava Basınç Kaybı (ESDU):** {res['dP_air_Pa']:.2f} Pa")
+                        st.write(f"**Tahmini Fan Şaft Gücü:** {res['fan_power_kW']:.2f} kW")
+                        st.write(f"**Boru İçi Gaz Akış Hızı:** {res['gas_velocity_m_s']:.2f} m/s")
+                        st.write(f"**Boru İçi Gaz Reynolds:** {res['gas_Re']:.0f}")
+                        st.write(f"**Gaz Tarafı Basınç Düşümü (Friction):** {res['gas_dP_bar']:.4f} bar")
+                        
+                if res['gas_velocity_m_s'] > 20.0:
+                    st.warning("⚠️ **Gürültü ve Erozyon Riski!** Boru içi gaz hızı 20 m/s sınırının üzerinde. Akış alanını artırmak için paralel tüp sayısını artırmayı düşünebilirsiniz.")
+                elif res['gas_velocity_m_s'] < 1.0:
+                    st.warning("⚠️ **Kirlenme (Fouling) Riski!** Boru içi akış hızı 1.0 m/s sınırının altında. Geçiş sayısını artırarak hızı yükseltmeyi düşünebilirsiniz.")
+                else:
+                    st.success("✅ **Hız Sınırları Uyumlu:** Gaz hızları API 661 erozyon ve kirlenme limitleri içerisinde.")
+                    
+            except Exception as e:
+                st.error(f"Hesaplama hatası: {e}")
+                log_error("Detaylı boyutlandırma hesaplama hatası.", e)
+
+    elif mode == "Eşanjör Değerlendirme (Rating)":
+        st.info("🔍 **Eşanjör Değerlendirme Modu:** Bu modülde, var olan fiziksel bir hava soğutmalı soğutucunun verilerini ve fan hava debisini girerek, proses gazının giriş sıcaklığından itibaren ulaşılabilecek verimi (effectiveness), gaz çıkış sıcaklığını ve basınç düşümlerini hesaplarsınız.")
+        
+        with st.container(border=True):
+            st.markdown("**🔍 Mevcut Eşanjörün Geometrik Özellikleri**")
+            r_col1, r_col2, r_col3, r_col4 = st.columns(4)
+            with r_col1:
+                r_tube_od = st.number_input("Boru Dış Çapı (mm)", min_value=5.0, max_value=100.0, value=25.4, key="r_od")
+                r_tube_thick = st.number_input("Boru Duvar Kalınlığı (mm)", min_value=0.5, max_value=10.0, value=2.11, key="r_thick")
+            with r_col2:
+                r_tube_len = st.number_input("Boru Boyu (m)", min_value=1.0, max_value=24.0, value=6.0, key="r_len")
+                r_tubes_per_row = st.number_input("Sıra Başına Boru Sayısı", min_value=5, max_value=200, value=24, key="r_tubes")
+            with r_col3:
+                r_tube_rows = st.number_input("Boru Sıra Sayısı", min_value=1, max_value=12, value=4, key="rows_rating")
+                r_tube_passes = st.number_input("Akış Geçiş Sayısı", min_value=1, max_value=12, value=4, key="passes_rating")
+            with r_col4:
+                r_layout_angle = st.selectbox("Dizilim Açısı", [30, 90], format_func=lambda x: "30° (Üçgen)" if x == 30 else "90° (Kare)", key="r_angle")
+                r_pitch_normal = st.number_input("Boru Eksene Adımı (mm)", min_value=10.0, max_value=200.0, value=63.5, key="r_pitch")
+
+            r_col5, r_col6, r_col7, r_col8 = st.columns(4)
+            with r_col5:
+                r_fin_height = st.number_input("Kanatçık Yüksekliği (mm)", min_value=2.0, max_value=50.0, value=15.9, key="r_fin_h")
+                r_fin_thick = st.number_input("Kanatçık Kalınlığı (mm)", min_value=0.1, max_value=5.0, value=0.4, key="r_fin_t")
+            with r_col6:
+                r_fin_fpi = st.number_input("İnç Başına Kanatçık (FPI)", min_value=2.0, max_value=30.0, value=10.0, key="r_fpi")
+            with r_col7:
+                r_tube_mat = st.selectbox("Boru Malzemesi (İletkenlik)", ["Karbon Çelik (50 W/mK)", "Paslanmaz Çelik (15 W/mK)", "Bakır (385 W/mK)"], key="r_tmat")
+                r_fin_mat = st.selectbox("Kanatçık Malzemesi (İletkenlik)", ["Alüminyum (205 W/mK)", "Bakır (385 W/mK)"], key="r_fmat")
+            with r_col8:
+                r_fouling_in = st.number_input("Boru İçi Kirlenme (m²K/W)", min_value=0.0, value=0.000176, format="%.6f", key="r_fi")
+                r_fouling_out = st.number_input("Hava Kirlenme Katsayısı (m²K/W)", min_value=0.0, value=0.000088, format="%.6f", key="r_fo")
+
+            st.markdown("**💨 İşletme Hava & Fan Parametreleri**")
+            r_col9, r_col10 = st.columns(2)
+            with r_col9:
+                r_air_in = st.number_input("Mevcut Hava Giriş Sıcaklığı", min_value=min_temp, value=25.0 if adv_t_unit != "K" else 298.15, key="r_air_in")
+            with r_col10:
+                r_fan_flow = st.number_input("Mevcut Fan Volumetrik Hava Akışı (m³/h)", min_value=100.0, value=150000.0, key="r_fan_flow")
+
+        if st.button("🚀 MEVCUT DURUM DEĞERLENDİR", type="primary", use_container_width=True):
+            try:
+                k_tube = 50.0 if "Karbon" in r_tube_mat else (15.0 if "Paslanmaz" in r_tube_mat else 385.0)
+                k_fin = 205.0 if "Alüminyum" in r_fin_mat else 385.0
+                
+                geom_params = {
+                    "tube_rows": int(r_tube_rows),
+                    "tube_passes": int(r_tube_passes),
+                    "tubes_per_row": int(r_tubes_per_row),
+                    "tube_length": float(r_tube_len),
+                    "tube_od": float(r_tube_od / 1000.0),
+                    "tube_thickness": float(r_tube_thick / 1000.0),
+                    "fin_height": float(r_fin_height / 1000.0),
+                    "fin_thickness": float(r_fin_thick / 1000.0),
+                    "fin_density": float(r_fin_fpi * 39.37),
+                    "pitch": float(r_pitch_normal / 1000.0),
+                    "angle": float(r_layout_angle),
+                    "tube_k": k_tube,
+                    "fin_k": k_fin,
+                    "fouling_in": r_fouling_in,
+                    "fouling_out": r_fouling_out
+                }
+                
+                cooler = AirFinnedGasCooler(
+                    st.session_state.kompozisyon,
+                    EOS_OPTIONS[adv_eos_str],
+                    adv_p_unit,
+                    atmospheric_pressure_pa=st.session_state.P_ATM_PA,
+                    logger=log_message,
+                )
+                
+                p_in_q = Q_(adv_p_in, clean_pressure_unit(adv_p_unit))
+                p_out_q = Q_(adv_p_out, clean_pressure_unit(adv_p_unit))
+                t_in_q = Q_(adv_t_in, clean_temp_unit(adv_t_unit))
+                air_in_q = Q_(r_air_in, clean_temp_unit(adv_t_unit))
+                
+                res = cooler.hesapla_degerlendirme_rating(
+                    m_dot_val=adv_flow_v,
+                    m_dot_unit=adv_flow_u,
+                    P_in_Q=p_in_q,
+                    P_out_Q=p_out_q,
+                    T_in_Q=t_in_q,
+                    air_in_Q=air_in_q,
+                    V_air_m3_h=r_fan_flow,
+                    geom_params=geom_params
+                )
+                
+                st.success("✅ Eşanjör Performans Değerlendirmesi Tamamlandı!")
+                
+                rc_1, rc_2, rc_3 = st.columns(3)
+                rc_1.metric("Gerçek Isı Aktarımı (Q)", f"{res['Q_kW'] / 1000.0:.4f} MW", border=True)
+                rc_2.metric("Gaz Çıkış Sıcaklığı", f"{res['T_gas_out_C']:.2f} °C", border=True)
+                rc_3.metric("Hava Çıkış Sıcaklığı", f"{res['T_air_out_C']:.2f} °C", border=True)
+                
+                rc_4, rc_5 = st.columns(2)
+                with rc_4:
+                    with st.container(border=True):
+                        st.markdown("**🔬 Isı Değiştirici Etkinliği**")
+                        st.write(f"**Isı Değiştirici Verimi (Effectiveness):** {res['effectiveness'] * 100:.2f} %")
+                        st.write(f"**Transfer Ünitesi Sayısı (NTU):** {res['NTU']:.4f}")
+                        st.write(f"**Toplam U Katsayısı:** {res['U_W_m2K']:.2f} W/(m²·K)")
+                        st.write(f"**Boru İçi Film Katsayısı (hi):** {res['h_inside_W_m2K']:.2f} W/(m²·K)")
+                        st.write(f"**Dış Film Katsayısı (ho):** {res['h_outside_actual_W_m2K']:.2f} W/(m²·K)")
+                with rc_5:
+                    with st.container(border=True):
+                        st.markdown("**⚙️ Basınç Kayıpları & Akış Limiti**")
+                        st.write(f"**Boru İçi Hız:** {res['gas_velocity_m_s']:.2f} m/s")
+                        st.write(f"**Gaz Tarafı Basınç Düşümü (Friction):** {res['gas_dP_bar']:.4f} bar")
+                        st.write(f"**Hava Tarafı Basınç Düşümü (ESDU):** {res['dP_air_Pa']:.2f} Pa")
+                        st.write(f"**Çıkış Gaz Faz Durumu:** **{res['gas_out_phase']}**")
+                        
+            except Exception as e:
+                st.error(f"Değerlendirme hatası: {e}")
+                log_error("Değerlendirme hesaplama hatası.", e)
+
 def draw_main():
     st.title(f"🌡️ {APP_DISPLAY_NAME} | Gaz Soğutucu Termal Yük Hesaplayıcı")
     st.caption("Doğal gaz ve hidrokarbon karışımları için termal yük ve ön boyutlandırma tahmini")
     draw_release_notes()
 
-    tab_inputs, tab_report, tab_logs = st.tabs(["⚙️ Girişler", "📊 Rapor", "📜 Kayıtlar"])
+    role = st.session_state.get("role", "user")
+    if role == "admin":
+        tab_inputs, tab_report, tab_new_design, tab_logs = st.tabs(["⚙️ Girişler", "📊 Rapor", "📐 Gelişmiş Boyutlandırma", "📜 Kayıtlar"])
+    else:
+        tab_inputs, tab_report, tab_logs = st.tabs(["⚙️ Girişler", "📊 Rapor", "📜 Kayıtlar"])
+        tab_new_design = None
 
     with tab_inputs:
         st.header("1. Akışkan Bileşimi")
@@ -734,6 +1168,9 @@ def draw_main():
                     st.write(f"**Kullanılan Motor:** {result['eos']}")
                     if "Cp_ideal" in ara:
                         st.write(f"**İdeal Gaz Cp0:** {ara['Cp_ideal']:.3f} kJ/(kg·K)")
+    if tab_new_design is not None:
+        with tab_new_design:
+            draw_advanced_design()
 
     with tab_logs:
         if st.session_state.log_records:
@@ -744,5 +1181,8 @@ def draw_main():
 
 if __name__ == "__main__":
     apply_theme(get_theme_preference())
-    draw_sidebar()
-    draw_main()
+    if st.session_state.authenticated:
+        draw_sidebar()
+        draw_main()
+    else:
+        draw_login_page()
