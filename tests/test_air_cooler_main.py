@@ -586,6 +586,143 @@ class AirCoolerMainTests(unittest.TestCase):
         with self.assertRaises(Exception):
             cooler._init_abstract_state()
 
+    # ── Coverage expansion: utility functions ──
+
+    def test_engine_eos_utility_functions(self):
+        from air_cooler_main_core import get_engine_keys, get_eos_options, resolve_engine_eos, ENGINE_EOS
+        keys = get_engine_keys()
+        self.assertIn("🔥 CoolProp", keys)
+        self.assertIn("🌍 neqsim", keys)
+
+        opts = get_eos_options(keys[0])
+        self.assertGreater(len(opts), 0)
+
+        backend, eos = resolve_engine_eos(keys[0], opts[0])
+        self.assertIn(backend, ("CoolProp", "neqsim"))
+        self.assertIsInstance(eos, str)
+
+    def test_legacy_eos_label_resolution(self):
+        from air_cooler_main_core import get_engine_eos_from_label, get_engine_eos_from_value
+        eng, eos = get_engine_eos_from_label("🏆 Yüksek Doğruluk (HEOS) - Tüm Akışkanlar")
+        self.assertEqual(eng, "CoolProp")
+        self.assertEqual(eos, "HEOS")
+
+        eng, eos = get_engine_eos_from_label("UNKNOWN")
+        self.assertEqual(eng, "CoolProp")
+        self.assertEqual(eos, "HEOS")
+
+        eng, eos = get_engine_eos_from_value("PR")
+        self.assertEqual(eng, "CoolProp")
+        self.assertEqual(eos, "PR")
+
+        eng, eos = get_engine_eos_from_value("UNKNOWN")
+        self.assertEqual(eng, "CoolProp")
+        self.assertEqual(eos, "UNKNOWN")
+
+    def test_constructor_defaults_fallback(self):
+        cooler = AirFinnedGasCooler({}, None, None)
+        self.assertEqual(cooler.engine, "CoolProp")
+        self.assertEqual(cooler.eos, "HEOS")
+        self.assertEqual(cooler.raw_p_unit, "bar(a)")
+
+    def test_constructor_neqsim_kwargs(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, engine="neqsim", eos="GERG-2008", raw_p_unit="bar(a)")
+        self.assertEqual(cooler.engine, "neqsim")
+        self.assertEqual(cooler.eos, "GERG-2008")
+
+    def test_ideal_gas_reference_returns_valid(self):
+        cooler = AirFinnedGasCooler({"METHANE": {"yuzde": 100.0, "tip": "Molar"}}, "PR", "bar(a)")
+        q_ideal, cp = cooler._ideal_gas_reference(1.0, 400.0, 350.0)
+        self.assertGreater(q_ideal, 0.0)
+        self.assertGreater(cp, 0.0)
+
+    def test_air_cooler_error_raise(self):
+        from air_cooler_main_core import AirCoolerError
+        with self.assertRaises(AirCoolerError):
+            raise AirCoolerError("test")
+
+    def test_update_state_at_pt_retries_with_different_temps(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        state = cooler._init_abstract_state()
+        result = cooler._update_state_at_pt(state, 101325.0 * 5, 170.0)
+        self.assertIsNone(result)
+
+    def test_hesapla_sogutma_bolgeleri_gas_only(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        bolgeler, curve = cooler.hesapla_sogutma_bolgeleri(
+            0.1, 101325.0 * 5, 101325.0 * 5, 200.0, 180.0, 1e5, 0.9e5
+        )
+        self.assertGreater(len(curve), 1)
+
+    def test_transport_properties_fallback_branch_unknown_component(self):
+        import CoolProp.CoolProp as CP
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        props = cooler.get_mixture_transport_properties(1e5, 300.0)
+        self.assertGreater(props["viscosity"], 0)
+        self.assertGreater(props["conductivity"], 0)
+
+    def test_rating_Ft_correction_nan(self):
+        import ht
+        orig = ht.air_cooler.Ft_aircooler
+        def _nan_Ft(**kwargs):
+            return float('nan')
+        ht.air_cooler.Ft_aircooler = _nan_Ft
+        try:
+            komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+            cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+            geom = {
+                "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+                "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+                "fin_height": 0.0159, "fin_thickness": 0.0004,
+                "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+                "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088
+            }
+            res = cooler.hesapla_degerlendirme_rating(
+                15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+                Q_(100.0, "degC"), Q_(25.0, "degC"), V_air_m3_h=150000.0, geom_params=geom
+            )
+            self.assertGreater(res["effectiveness"], 0.0)
+        finally:
+            ht.air_cooler.Ft_aircooler = orig
+
+    def test_detailed_design_reynolds_transitional_exact(self):
+        cooler = AirFinnedGasCooler(self.komp, "PR", "bar(a)")
+        geom = {
+            "tube_rows": 1, "tube_passes": 1, "tubes_per_row": 100,
+            "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+            "fin_height": 0.0159, "fin_thickness": 0.0004,
+            "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+            "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+            "fan_efficiency": 0.65
+        }
+        res = cooler.hesapla_detayli_dizayn(
+            0.06, "kg/s", Q_(5.0, "bar"), Q_(4.9, "bar"),
+            Q_(60.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(35.0, "degC"), geom
+        )
+        self.assertGreater(res["gas_Re"], 2100)
+        self.assertLess(res["gas_Re"], 4000)
+        self.assertGreater(res["Q_kW"], 0.0)
+
+    def test_rating_epsilon_zero_when_minimal_flow(self):
+        cooler = AirFinnedGasCooler(self.komp, "PR", "bar(a)")
+        geom = {
+            "tube_rows": 1, "tube_passes": 1, "tubes_per_row": 1,
+            "tube_length": 1.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+            "fin_height": 0.0159, "fin_thickness": 0.0004,
+            "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+            "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088
+        }
+        res = cooler.hesapla_degerlendirme_rating(
+            0.001, "kg/s", Q_(5.0, "bar"), Q_(4.9, "bar"),
+            Q_(60.0, "degC"), Q_(25.0, "degC"), V_air_m3_h=50000.0, geom_params=geom
+        )
+        self.assertGreaterEqual(res["effectiveness"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

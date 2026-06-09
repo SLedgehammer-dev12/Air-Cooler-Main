@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import streamlit as st
 import ht
 
@@ -19,10 +20,17 @@ from air_cooler_main_core import (
     HeatExchangerSizingError,
     Q_,
     UNITS,
+    ENGINE_EOS,
+    get_engine_keys,
+    get_eos_options,
+    resolve_engine_eos,
     clean_pressure_unit,
     clean_temp_unit,
     initialize_users_db,
     authenticate_user,
+    assess_eos_risk,
+    get_fallback_eos,
+    EOS_RISK_RULES,
 )
 
 APP_DIR = Path(__file__).resolve().parent
@@ -153,6 +161,10 @@ if "P_ATM_PA" not in st.session_state:
     st.session_state.P_ATM_PA = DEFAULT_ATM_PRESSURE_PA
 if "log_records" not in st.session_state:
     st.session_state.log_records = []
+if "eos_warning_accepted" not in st.session_state:
+    st.session_state.eos_warning_accepted = False
+if "q_eos_warning_accepted" not in st.session_state:
+    st.session_state.q_eos_warning_accepted = False
 
 users_db = initialize_users_db(USERS_FILE)
 
@@ -535,7 +547,50 @@ def draw_advanced_design():
         with p_col3:
             adv_flow_u = st.selectbox("Debi Birimi", UNITS["Akış Miktarı"], key="adv_flow_u")
         with p_col4:
-            adv_eos_str = st.selectbox("Motor (EOS)", list(EOS_OPTIONS.keys()), key="adv_eos_str")
+            adv_engine = st.selectbox("Termodinamik Motor", get_engine_keys(), key="adv_engine")
+            adv_eos_options = get_eos_options(adv_engine)
+            if "adv_eos_label" not in st.session_state or st.session_state.adv_eos_label not in adv_eos_options:
+                st.session_state.adv_eos_label = adv_eos_options[0]
+            adv_eos_label = st.selectbox("EOS", adv_eos_options, key="adv_eos_label")
+            st.session_state._adv_eos_key = f"{adv_engine}:{adv_eos_label}"
+
+        # ── EOS Risk Uyarısı ──
+        _adv_eng_backend, _adv_eos_val = resolve_engine_eos(
+            st.session_state.adv_engine, st.session_state.adv_eos_label
+        )
+        _adv_eos_key = f"{st.session_state.adv_engine}:{st.session_state.adv_eos_label}"
+        if st.session_state.get("_adv_eos_prev_key", "") != _adv_eos_key:
+            st.session_state.eos_warning_accepted = False
+            st.session_state._adv_eos_prev_key = _adv_eos_key
+        if _adv_eng_backend == "neqsim" and st.session_state.get("kompozisyon"):
+            _risks = assess_eos_risk(
+                _adv_eos_val, st.session_state.kompozisyon,
+                st.session_state.get("adv_p_in", 0),
+            )
+            if _risks:
+                _expanded = not st.session_state.eos_warning_accepted
+                with st.expander("⚠️ EOS Uyarıları", expanded=_expanded):
+                    for r in _risks:
+                        st.warning(r)
+                    if not st.session_state.eos_warning_accepted:
+                        fallback = get_fallback_eos(_adv_eos_val)
+                        if fallback:
+                            _fb_label = None
+                            for lbl, val in ENGINE_EOS[st.session_state.adv_engine]["eos"].items():
+                                if val == fallback:
+                                    _fb_label = lbl
+                                    break
+                            if _fb_label:
+                                col_w1, col_w2 = st.columns(2)
+                                with col_w1:
+                                    if st.button(f"🔄 Önerilene Geç: {_fb_label}"):
+                                        st.session_state.adv_eos_label = _fb_label
+                                        st.session_state.eos_warning_accepted = False
+                                        st.rerun()
+                                with col_w2:
+                                    if st.button("⚠️ Yine de Devam Et"):
+                                        st.session_state.eos_warning_accepted = True
+                                        st.rerun()
 
         p_col5, p_col6, p_col7, p_col8 = st.columns(4)
         with p_col5:
@@ -591,10 +646,12 @@ def draw_advanced_design():
                 air_in_q = Q_(adv_air_in, clean_temp_unit(adv_t_unit))
                 air_out_q = Q_(adv_air_out, clean_temp_unit(adv_t_unit))
                 
+                _engine_b, _eos_v = resolve_engine_eos(st.session_state.adv_engine, st.session_state.adv_eos_label)
                 cooler = AirFinnedGasCooler(
                     st.session_state.kompozisyon,
-                    EOS_OPTIONS[adv_eos_str],
-                    adv_p_unit,
+                    engine=_engine_b,
+                    eos=_eos_v,
+                    raw_p_unit=adv_p_unit,
                     atmospheric_pressure_pa=st.session_state.P_ATM_PA,
                     logger=log_message,
                 )
@@ -713,10 +770,12 @@ def draw_advanced_design():
                     "fan_efficiency": fan_eff
                 }
                 
+                _engine_b, _eos_v = resolve_engine_eos(st.session_state.adv_engine, st.session_state.adv_eos_label)
                 cooler = AirFinnedGasCooler(
                     st.session_state.kompozisyon,
-                    EOS_OPTIONS[adv_eos_str],
-                    adv_p_unit,
+                    engine=_engine_b,
+                    eos=_eos_v,
+                    raw_p_unit=adv_p_unit,
                     atmospheric_pressure_pa=st.session_state.P_ATM_PA,
                     logger=log_message,
                 )
@@ -841,10 +900,12 @@ def draw_advanced_design():
                     "fouling_out": r_fouling_out
                 }
                 
+                _engine_b, _eos_v = resolve_engine_eos(st.session_state.adv_engine, st.session_state.adv_eos_label)
                 cooler = AirFinnedGasCooler(
                     st.session_state.kompozisyon,
-                    EOS_OPTIONS[adv_eos_str],
-                    adv_p_unit,
+                    engine=_engine_b,
+                    eos=_eos_v,
+                    raw_p_unit=adv_p_unit,
                     atmospheric_pressure_pa=st.session_state.P_ATM_PA,
                     logger=log_message,
                 )
@@ -1037,7 +1098,49 @@ def draw_main():
 
             with st.container(border=True):
                 draw_station_header("C1", "Bundle / UA", "EOS seçimi ve ön boyutlandırma parametreleri", "design")
-                eos_str = st.selectbox("Motor (Equation of State)", list(EOS_OPTIONS.keys()))
+                q_engine = st.selectbox("Termodinamik Motor", get_engine_keys(), key="q_engine")
+                q_eos_options = get_eos_options(q_engine)
+                if "q_eos_label" not in st.session_state or st.session_state.q_eos_label not in q_eos_options:
+                    st.session_state.q_eos_label = q_eos_options[0]
+                st.selectbox("EOS", q_eos_options, key="q_eos_label")
+                # ── EOS Risk Uyarısı (Hızlı Hesaplama) ──
+                _q_eng_backend, _q_eos_val = resolve_engine_eos(
+                    st.session_state.get("q_engine", get_engine_keys()[0]),
+                    st.session_state.get("q_eos_label", get_eos_options(get_engine_keys()[0])[0]),
+                )
+                _q_eos_key = f"{st.session_state.get('q_engine', '')}:{st.session_state.get('q_eos_label', '')}"
+                if st.session_state.get("_q_eos_prev_key", "") != _q_eos_key:
+                    st.session_state.q_eos_warning_accepted = False
+                    st.session_state._q_eos_prev_key = _q_eos_key
+                if _q_eng_backend == "neqsim" and st.session_state.get("kompozisyon"):
+                    _q_risks = assess_eos_risk(
+                        _q_eos_val, st.session_state.kompozisyon,
+                        st.session_state.get("q_p_in", 0),
+                    )
+                    if _q_risks:
+                        _q_expanded = not st.session_state.q_eos_warning_accepted
+                        with st.expander("⚠️ EOS Uyarıları", expanded=_q_expanded):
+                            for r in _q_risks:
+                                st.warning(r)
+                            if not st.session_state.q_eos_warning_accepted:
+                                _q_fb = get_fallback_eos(_q_eos_val)
+                                if _q_fb:
+                                    _q_fb_label = None
+                                    for lbl, val in ENGINE_EOS[st.session_state.get("q_engine", list(ENGINE_EOS.keys())[0])]["eos"].items():
+                                        if val == _q_fb:
+                                            _q_fb_label = lbl
+                                            break
+                                    if _q_fb_label:
+                                        _q_c1, _q_c2 = st.columns(2)
+                                        with _q_c1:
+                                            if st.button(f"🔄 Önerilene Geç: {_q_fb_label}", key="q_fb_btn"):
+                                                st.session_state.q_eos_label = _q_fb_label
+                                                st.session_state.q_eos_warning_accepted = False
+                                                st.rerun()
+                                        with _q_c2:
+                                            if st.button("⚠️ Yine de Devam Et", key="q_continue_btn"):
+                                                st.session_state.q_eos_warning_accepted = True
+                                                st.rerun()
                 overall_u = st.number_input(
                     "Genel U [W/(m²·K)]",
                     min_value=1.0,
@@ -1086,10 +1189,15 @@ def draw_main():
                         t_out_q = Q_(t_out, clean_temp_unit(t_unit))
                         air_in_q = Q_(air_in, clean_temp_unit(t_unit))
                         air_out_q = Q_(air_out, clean_temp_unit(t_unit))
+                        _q_engine_b, _q_eos_v = resolve_engine_eos(
+                            st.session_state.get("q_engine", get_engine_keys()[0]),
+                            st.session_state.get("q_eos_label", get_eos_options(get_engine_keys()[0])[0]),
+                        )
                         cooler = AirFinnedGasCooler(
                             st.session_state.kompozisyon,
-                            EOS_OPTIONS[eos_str],
-                            p_unit,
+                            engine=_q_engine_b,
+                            eos=_q_eos_v,
+                            raw_p_unit=p_unit,
                             atmospheric_pressure_pa=st.session_state.P_ATM_PA,
                             logger=log_message,
                         )
@@ -1113,7 +1221,7 @@ def draw_main():
                             "uyari": uyari,
                             "ara": cooler.ara_sonuclar,
                             "time": datetime.now().strftime("%H:%M:%S"),
-                            "eos": eos_str,
+                            "eos": _q_eos_v,
                         }
                         st.success(f"Hesaplama tamamlandı ({st.session_state.last_res['time']})")
                     except AmbiguousTwoPhaseInputError as exc:
@@ -1184,6 +1292,76 @@ def draw_main():
                     st.write(f"**Kullanılan Motor:** {result['eos']}")
                     if "Cp_ideal" in ara:
                         st.write(f"**İdeal Gaz Cp0:** {ara['Cp_ideal']:.3f} kJ/(kg·K)")
+
+            # ── Admin: Tüm EOS Karşılaştırma Tablosu ──
+            _role = st.session_state.get("role", "user")
+            if _role == "admin" and st.session_state.get("kompozisyon"):
+                st.divider()
+                with st.expander("🔬 Tüm EOS'ları Karşılaştır (Admin)", expanded=False):
+                    if st.button("▶ Karşılaştırmayı Çalıştır", key="eos_compare_btn"):
+                        _comp = st.session_state.kompozisyon
+                        _P_in = result["ara"].get("P_in_Pa", 60e5) / 1e5
+                        _P_out = result["ara"].get("P_out_Pa", 58e5) / 1e5
+                        _T_in_K = result["ara"].get("T_in_K", 373.15)
+                        _T_out_K = result["ara"].get("T_out_K", 313.15)
+                        _flow_v = result["ara"].get("m_dot_kg_s", 0.1)
+                        _p_unit = "bar(a)"
+
+                        _rows = []
+                        for _eos_label, _eos_val in ENGINE_EOS["🌍 neqsim"]["eos"].items():
+                            try:
+                                _c = AirFinnedGasCooler(
+                                    _comp,
+                                    engine="neqsim",
+                                    eos=_eos_val,
+                                    raw_p_unit=_p_unit,
+                                )
+                                _q, _qi, _ = _c.hesapla_isi_yuku(
+                                    _flow_v, "kg/s",
+                                    Q_(_P_in, "bar"), Q_(_P_out, "bar"),
+                                    Q_(_T_in_K, "K"), Q_(_T_out_K, "K"),
+                                )
+                                _r = _c.ara_sonuclar
+                                _dh = _r.get("H_in_kJ_kg", 0) - _r.get("H_out_kJ_kg", 0)
+                                _rows.append({
+                                    "EOS": _eos_label,
+                                    "Q (MW)": round(float(_q.to("MW").m), 6),
+                                    "Δh (kJ/kg)": round(_dh, 2),
+                                    "ρ_in": round(_r.get("rho_in", 0), 2),
+                                    "ρ_out": round(_r.get("rho_out", 0), 2),
+                                    "Z_in": round(_r.get("Z_in", 0), 4),
+                                    "Çalıştı": "✅",
+                                })
+                            except Exception as _exc:
+                                _rows.append({
+                                    "EOS": _eos_label,
+                                    "Q (MW)": None,
+                                    "Δh (kJ/kg)": None,
+                                    "ρ_in": None,
+                                    "ρ_out": None,
+                                    "Z_in": None,
+                                    "Çalıştı": f"❌ {str(_exc)[:60]}",
+                                })
+
+                        if _rows:
+                            _df = pd.DataFrame(_rows)
+                            st.dataframe(_df, use_container_width=True, hide_index=True)
+                            _ok = [r for r in _rows if r["Çalıştı"] == "✅"]
+                            if len(_ok) > 1:
+                                _ref_q = _ok[0]["Q (MW)"]
+                                _df_chart = pd.DataFrame(_ok)
+                                _df_chart["fark%"] = _df_chart["Q (MW)"].apply(
+                                    lambda q: round((q - _ref_q) / _ref_q * 100, 3) if _ref_q else 0
+                                )
+                                _fig = px.bar(
+                                    _df_chart, x="EOS", y="Q (MW)",
+                                    color="fark%",
+                                    color_continuous_scale="RdYlGn_r",
+                                    title="EOS Karşılaştırma - Isı Yükü (MW)",
+                                    text="fark%",
+                                )
+                                _fig.update_traces(texttemplate="%{text}%", textposition="outside")
+                                st.plotly_chart(_fig, use_container_width=True)
     if tab_new_design is not None:
         with tab_new_design:
             draw_advanced_design()

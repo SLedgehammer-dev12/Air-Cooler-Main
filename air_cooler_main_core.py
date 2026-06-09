@@ -10,6 +10,17 @@ import os
 import json
 from pathlib import Path
 
+from air_cooler_neqsim import (
+    has_neqsim,
+    start_jvm as neqsim_start_jvm,
+    NeqSimFluid,
+    COOLPROP_TO_NEQSIM,
+    NEQSIM_EOS_DISPLAY_TO_MODEL,
+    assess_eos_risk,
+    get_fallback_eos,
+    EOS_RISK_RULES,
+)
+
 APP_DISPLAY_NAME = "Air Cooler Main"
 APP_VERSION = "3.7.1"
 DEFAULT_ATM_PRESSURE_PA = 101325.0
@@ -106,12 +117,84 @@ COOLPROP_ALIASES = {
 def resolve_fluid_name(name):
     return COOLPROP_ALIASES.get(name, name)
 
-EOS_OPTIONS = {
-    "🏆 Yüksek Doğruluk (HEOS) - Tüm Akışkanlar": "HEOS",
-    "⚡ Hızlı Hesaplama (Peng-Robinson)": "PR",
-    "⚡ Hızlı Hesaplama (Soave-Redlich-Kwong)": "SRK",
-    "🔬 Doğalgaz (HEOS/GERG Korelasyonları)": "HEOS",
+ENGINE_EOS = {
+    "🔥 CoolProp": {
+        "backend": "CoolProp",
+        "default_eos": "HEOS",
+        "eos": {
+            "🏆 HEOS (Yüksek Doğruluk)": "HEOS",
+            "⚡ Peng-Robinson": "PR",
+            "⚡ Soave-Redlich-Kwong": "SRK",
+        },
+    },
+    "🌍 neqsim": {
+        "backend": "neqsim",
+        "default_eos": "GERG-2008",
+        "eos": {
+            "GERG-2008 (ISO Standardı)": "GERG-2008",
+            "Peng-Robinson (PR)": "PR",
+            "Soave-Redlich-Kwong (SRK)": "SRK",
+            "CPA-SRK (Su/CO₂)": "CPA-SRK",
+            "BWRS (Yüksek Basınç)": "BWRS",
+            "PSRK (Predictive)": "PSRK",
+            "PR-MC (Mathias-Copeman)": "PR-MC",
+            "SRK-MC (Mathias-Copeman)": "SRK-MC",
+            "PR-volcor (Hacim Düz.)": "PR-volcor",
+            "SRK-volcor (Hacim Düz.)": "SRK-volcor",
+        },
+    },
 }
+
+def get_engine_keys():
+    return list(ENGINE_EOS.keys())
+
+def get_eos_options(engine_key):
+    return list(ENGINE_EOS[engine_key]["eos"].keys())
+
+def resolve_engine_eos(engine_key, eos_label):
+    info = ENGINE_EOS[engine_key]
+    return info["backend"], info["eos"][eos_label]
+
+# Legacy flat EOS options (for backward compat with older code/tests)
+def _build_legacy_eos_options():
+    d = {}
+    for eng_key, eng_info in ENGINE_EOS.items():
+        for eos_label, eos_val in eng_info["eos"].items():
+            display = f"{eng_key[:2]} {eos_label}"
+            if eng_key == "🔥 CoolProp" and eos_val == "HEOS":
+                d[f"🏆 Yüksek Doğruluk (HEOS) - Tüm Akışkanlar"] = eos_val
+            elif eng_key == "🔥 CoolProp" and eos_val == "PR":
+                d[f"⚡ Hızlı Hesaplama (Peng-Robinson)"] = eos_val
+            elif eng_key == "🔥 CoolProp" and eos_val == "SRK":
+                d[f"⚡ Hızlı Hesaplama (Soave-Redlich-Kwong)"] = eos_val
+            elif eng_key == "🌍 neqsim" and eos_val == "GERG-2008":
+                d[f"🌍 ISO Standardı (GERG-2008/neqsim)"] = eos_val
+            else:
+                d[display] = eos_val
+    return d
+
+EOS_OPTIONS = _build_legacy_eos_options()
+
+def get_engine_eos_from_label(label):
+    """Legacy: resolve EOS_OPTIONS label to (engine, eos) tuple."""
+    mapping = {
+        "🏆 Yüksek Doğruluk (HEOS) - Tüm Akışkanlar": ("CoolProp", "HEOS"),
+        "⚡ Hızlı Hesaplama (Peng-Robinson)": ("CoolProp", "PR"),
+        "⚡ Hızlı Hesaplama (Soave-Redlich-Kwong)": ("CoolProp", "SRK"),
+        "🔬 Doğalgaz (HEOS/GERG Korelasyonları)": ("CoolProp", "HEOS"),
+        "🌍 ISO Standardı (GERG-2008/neqsim)": ("neqsim", "GERG-2008"),
+    }
+    return mapping.get(label, ("CoolProp", "HEOS"))
+
+def get_engine_eos_from_value(value):
+    """Legacy: resolve EOS value string to (engine, eos)."""
+    mapping = {
+        "HEOS": ("CoolProp", "HEOS"),
+        "PR": ("CoolProp", "PR"),
+        "SRK": ("CoolProp", "SRK"),
+        "GERG-2008": ("neqsim", "GERG-2008"),
+    }
+    return mapping.get(value, ("CoolProp", value))
 
 UNITS = {
     "Basınç": ["bar(a)", "bar(g)", "psi(a)", "psi(g)", "kPa", "MPa", "atm"],
@@ -150,13 +233,21 @@ class AirFinnedGasCooler:
     def __init__(
         self,
         akiskan_kompozisyon,
-        eos_secimi,
-        raw_p_unit,
+        eos_secimi=None,
+        raw_p_unit=None,
         atmospheric_pressure_pa=DEFAULT_ATM_PRESSURE_PA,
         logger=None,
+        engine=None,
+        eos=None,
     ):
-        self.eos_secimi = eos_secimi
-        self.raw_p_unit = raw_p_unit
+        if eos_secimi is not None:
+            engine_actual, eos_actual = get_engine_eos_from_value(eos_secimi)
+            self.engine = engine_actual
+            self.eos = eos_actual
+        else:
+            self.engine = engine or "CoolProp"
+            self.eos = eos or "HEOS"
+        self.raw_p_unit = raw_p_unit or "bar(a)"
         self.atmospheric_pressure_pa = atmospheric_pressure_pa
         self.logger = logger or (lambda level, message, exception=None: None)
         self.ara_sonuclar = {}
@@ -168,26 +259,56 @@ class AirFinnedGasCooler:
             self.ara_sonuclar["orijinal_toplam"] = raw_total
         self.bilesen_keys = list(self.mol_kompozisyon_coolprop.keys())
         self.karisim_str_names_only = self._coolprop_karisim_str_olustur(with_concentrations=False)
-        self._log("INFO", f"Cooler sınıfı başlatıldı. EOS: {eos_secimi}")
+        self._log("INFO", f"Cooler sınıfı başlatıldı. Engine: {self.engine}, EOS: {self.eos}")
 
     def _log(self, level, message, exception=None):
         self.logger(level, message, exception)
 
     def _init_abstract_state(self, backend=None):
-        selected_backend = backend or self.eos_secimi
+        """Create thermodynamic state. backend overrides auto-detect."""
+        engine = self.engine
+        if backend is not None:
+            # Explicit backend override (e.g. from fallback loops)
+            eos = backend
+            if backend == "HEOS":
+                engine = "CoolProp"
+            elif self.engine == "neqsim":
+                engine = "neqsim"
+            else:
+                engine = "CoolProp"
+        else:
+            eos = self.eos
+            engine = self.engine
+
         resolved_keys = [resolve_fluid_name(k) for k in self.bilesen_keys]
         num_components = len(resolved_keys)
         fractions = [self.mol_kompozisyon_coolprop[k] for k in self.bilesen_keys]
+
+        if engine == "neqsim":
+            if not has_neqsim():
+                self._log("WARNING", "neqsim kullanılamıyor (Java gerekli), HEOS'a düşüldü.")
+                return self._init_abstract_state("HEOS")
+            try:
+                neqsim_start_jvm()
+                return NeqSimFluid(eos, resolved_keys, fractions)
+            except Exception as exc:
+                fallback = get_fallback_eos(eos)
+                if fallback:
+                    self._log("WARNING", f"neqsim {eos} başarısız, {fallback} deneniyor.", exc)
+                    return self._init_abstract_state(fallback)
+                self._log("WARNING", f"neqsim {eos} başarısız, HEOS'a düşüldü.", exc)
+                return self._init_abstract_state("HEOS")
+
         try:
-            if selected_backend == "HEOS" and num_components == 1:
+            if eos == "HEOS" and num_components == 1:
                 return AbstractState("HEOS", resolved_keys[0])
 
-            state = AbstractState(selected_backend, "&".join(resolved_keys))
+            state = AbstractState(eos, "&".join(resolved_keys))
             state.set_mole_fractions(fractions)
             return state
         except Exception as exc:
-            if selected_backend != "HEOS":
-                self._log("WARNING", f"{selected_backend} başlatılamadı, HEOS'a düşüldü.", exc)
+            if eos != "HEOS":
+                self._log("WARNING", f"{eos} başlatılamadı, HEOS'a düşüldü.", exc)
                 return self._init_abstract_state("HEOS")
             raise
 
@@ -293,7 +414,8 @@ class AirFinnedGasCooler:
         return faz_isim
 
     def _get_saturation_properties(self, P_Pa):
-        for backend in dict.fromkeys([self.eos_secimi, "HEOS"]):
+        first = "GERG-2008" if self.engine == "neqsim" else self.eos
+        for backend in dict.fromkeys([first, "HEOS"]):
             try:
                 state = self._init_abstract_state(backend)
                 state.update(CP.PQ_INPUTS, P_Pa, 0.0)
@@ -341,7 +463,8 @@ class AirFinnedGasCooler:
 
     def _ideal_gas_reference(self, m_dot_SI, T_in_SI, T_out_SI):
         T_avg = (T_in_SI + T_out_SI) / 2.0
-        for backend in dict.fromkeys(["HEOS", self.eos_secimi]):
+        first = "GERG-2008" if self.engine == "neqsim" else self.eos
+        for backend in dict.fromkeys(["HEOS", first]):
             try:
                 state = self._init_abstract_state(backend)
                 state.update(CP.PT_INPUTS, 101325.0, T_avg)
