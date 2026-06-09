@@ -29,26 +29,29 @@ Ana teknik durum:
 - şematik giriş ekranı A1/A2/B1/B2/C1 bölgeleri ile kurulmuş durumda
 - Güvenli Giriş Sistemi (Admin & User Rolleri, SHA-256 + Tuzlama) aktif hale getirildi.
 - Gelişmiş 3-Kademeli Boyutlandırma ve Değerlendirme sekmesi (`📐 Gelişmiş Boyutlandırma`) eklendi ve admin rolüne kısıtlandı.
-- Test kapsamı %93'e yükseltildi (26 birim testi başarıyla geçiyor).
+- Test kapsamı %93 (34 birim testi başarıyla geçiyor).
+- Editable kompozisyon tablosu eklendi (yüzdeler doğrudan düzenlenebilir).
+- 4 ondalık haneli hassasiyet (`%.4f`) ile yüzde giriş/görüntüleme.
+- %99 normalizasyon desteği (toplam >= %99 → normalize edilerek hesaplanır).
+- `I-BUTANE` / `I-PENTANE` CoolProp fluid adları `ISOBUTANE` / `ISOPENTANE` olarak düzeltildi; alias sistemi eklendi.
 - macOS standalone paket üretildi ve çalıştığı doğrulandı.
-- `requirements.txt` eksik bağımlılıklar (`ht`, `fluids`, `scipy`) eklendi.
-- `air_cooler_main_app.py`'ye `import ht` eklendi.
-- PyInstaller spec'e `ht`, `fluids`, `scipy` hidden imports eklendi.
+- `requirements.txt`, `app.py` imports, PyInstaller spec güncellendi.
 
 ## Son Bu Oturumda Yapılanlar
 
-1. Güvenli giriş, tuzlama ve doğrulama motoru eklendi.
-2. Rol tabanlı UI kısıtlamaları kuruldu.
-3. Test kapsamı %93'e çıkarılarak 13 yeni test senaryosu eklendi (geçişli Re akışı, çıkış iki-faz koruması, efektif LMTD sınırları, transport properties, gauge basınç dönüşümü, bozuk/kayıp kullanıcı DB dosyaları, düşük hava debisi rating, entegre hava sizing).
-4. `ModuleNotFoundError: No module named 'ht'` hatası giderildi.
-5. `requirements.txt`, `app.py` imports, ve PyInstaller spec dosyası güncellendi.
-6. Sürüm 3.7.1'e yükseltildi; CHANGELOG, RELEASE_NOTES güncellendi.
+1. CoolProp fluid adları düzeltildi (`I-BUTANE`→`ISOBUTANE`, `I-PENTANE`→`ISOPENTANE`).
+2. `COOLPROP_ALIASES` geriye dönük uyumluluk haritası eklendi; `resolve_fluid_name()` fonksiyonu ile tüm CoolProp çağrıları alias üzerinden çözümleniyor.
+3. Editable kompozisyon tablosu: Mevcut karışım satırlarında `number_input` ile yüzde düzenleme.
+4. Tüm yüzde girişleri `%.4f` formatına yükseltildi (step=0.0001).
+5. `validate_inputs` fonksiyonunda toplam kontrolü `abs(total-100) > 0.001` → `total < 99.0` olarak değiştirildi.
+6. Normalizasyon flag'i (`ara_sonuclar["normalize_edildi"]`) core'a eklendi.
+7. 8 yeni test (ISOBUTANE/ISOPENTANE, alias, normalize, 4dp, invalid fluid, tüm bileşen validasyonu).
+8. Testler 34/34 başarılı, coverage %93.
 
 ## Doğrulama Özeti
 
-- `python3 -m pytest tests/test_air_cooler_main.py -v` -> `26 tests OK`
+- `python3 -m pytest tests/test_air_cooler_main.py -v` -> `34 tests OK`
 - `coverage report -m` -> `TOTAL: 93% coverage`
-- packaged launcher macOS smoke test -> `build complete, standalone folder ready`
 
 ## Repo ve Release Bilgisi
 

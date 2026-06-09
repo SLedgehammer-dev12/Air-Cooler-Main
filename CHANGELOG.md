@@ -2,8 +2,12 @@
 
 ## 3.7.1 - 2026-06-09
 
+- **CoolProp Fluid Adı Düzeltmesi:** `"I-BUTANE"` → `"ISOBUTANE"`, `"I-PENTANE"` → `"ISOPENTANE"` olarak düzeltildi; eski adlar için `COOLPROP_ALIASES` geriye dönük uyumluluk eklendi.
+- **Editable Kompozisyon Tablosu:** Mevcut karışım tablosundaki yüzde değerleri artık doğrudan düzenlenebilir hale getirildi (number_input ile).
+- **4 Ondalık Haneli Hassasiyet:** Tüm yüzde girişleri ve görüntülemeler `%.4f` formatına yükseltildi.
+- **%99 Normalizasyon Desteği:** Bileşen toplamı en az %99.00 olduğunda, otomatik normalize edilerek hesaplamaya izin veriliyor.
 - **Bağımlılık Yönetimi Düzeltmesi:** `requirements.txt`'ye eksik bağımlılıklar (`ht`, `fluids`, `scipy`) eklendi; `air_cooler_main_app.py`'ye `import ht` eklendi; PyInstaller spec'e hidden imports tanımlandı.
-- **Test Kapsamı Artışı:** 13 yeni test ile coverage %89 → %93'e yükseltildi (geçişli Re, iki-faz koruma, LMTD sınırları, transport properties, auth edge case'leri).
+- **Test Kapsamı Artışı:** 8 yeni test ile toplam 34 teste ulaşıldı, coverage %93 korunuyor.
 
 ## 3.7.0 - 2026-06-03
 

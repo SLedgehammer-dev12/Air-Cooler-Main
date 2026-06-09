@@ -83,9 +83,9 @@ COOLPROP_COMPONENTS = {
     "ETHANE": "Etan (C2)",
     "PROPANE": "Propan (C3)",
     "N-BUTANE": "n-Bütan (nC4)",
-    "I-BUTANE": "i-Bütan (iC4)",
+    "ISOBUTANE": "i-Bütan (iC4)",
     "N-PENTANE": "n-Pentan (nC5)",
-    "I-PENTANE": "i-Pentan (iC5)",
+    "ISOPENTANE": "i-Pentan (iC5)",
     "CYCLOPENTANE": "Siklopentan",
     "HEXANE": "Hekzan (C6)",
     "HEPTANE": "Heptan (C7)",
@@ -97,6 +97,14 @@ COOLPROP_COMPONENTS = {
     "OXYGEN": "Oksijen (O2)",
     "ARGON": "Argon (Ar)",
 }
+
+COOLPROP_ALIASES = {
+    "I-BUTANE": "ISOBUTANE",
+    "I-PENTANE": "ISOPENTANE",
+}
+
+def resolve_fluid_name(name):
+    return COOLPROP_ALIASES.get(name, name)
 
 EOS_OPTIONS = {
     "🏆 Yüksek Doğruluk (HEOS) - Tüm Akışkanlar": "HEOS",
@@ -153,7 +161,11 @@ class AirFinnedGasCooler:
         self.logger = logger or (lambda level, message, exception=None: None)
         self.ara_sonuclar = {}
         self.kompozisyon_raw = akiskan_kompozisyon.copy()
+        raw_total = sum(v["yuzde"] for v in self.kompozisyon_raw.values()) if self.kompozisyon_raw else 0.0
         self.mol_kompozisyon_coolprop = self._kutlesel_mol_cevir(self.kompozisyon_raw)
+        if raw_total and abs(raw_total - 100.0) > 0.01:
+            self.ara_sonuclar["normalize_edildi"] = True
+            self.ara_sonuclar["orijinal_toplam"] = raw_total
         self.bilesen_keys = list(self.mol_kompozisyon_coolprop.keys())
         self.karisim_str_names_only = self._coolprop_karisim_str_olustur(with_concentrations=False)
         self._log("INFO", f"Cooler sınıfı başlatıldı. EOS: {eos_secimi}")
@@ -163,13 +175,14 @@ class AirFinnedGasCooler:
 
     def _init_abstract_state(self, backend=None):
         selected_backend = backend or self.eos_secimi
-        num_components = len(self.bilesen_keys)
+        resolved_keys = [resolve_fluid_name(k) for k in self.bilesen_keys]
+        num_components = len(resolved_keys)
         fractions = [self.mol_kompozisyon_coolprop[k] for k in self.bilesen_keys]
         try:
             if selected_backend == "HEOS" and num_components == 1:
-                return AbstractState("HEOS", self.bilesen_keys[0])
+                return AbstractState("HEOS", resolved_keys[0])
 
-            state = AbstractState(selected_backend, self.karisim_str_names_only)
+            state = AbstractState(selected_backend, "&".join(resolved_keys))
             state.set_mole_fractions(fractions)
             return state
         except Exception as exc:
@@ -191,7 +204,8 @@ class AirFinnedGasCooler:
         mol_komp = {}
         toplam_mol = 0.0
         for bilesen, val in kompozisyon.items():
-            mol_i = (val["yuzde"] / 100.0) / CP.PropsSI("M", bilesen)
+            resolved = resolve_fluid_name(bilesen)
+            mol_i = (val["yuzde"] / 100.0) / CP.PropsSI("M", resolved)
             mol_komp[bilesen] = mol_i
             toplam_mol += mol_i
 
@@ -556,15 +570,16 @@ class AirFinnedGasCooler:
         visc_sum = 0.0
         cond_sum = 0.0
         for b, y_frac in self.mol_kompozisyon_coolprop.items():
+            resolved_b = resolve_fluid_name(b)
             try:
-                M = CP.PropsSI("M", b)
+                M = CP.PropsSI("M", resolved_b)
                 mw_mix += y_frac * M
-                v = CP.PropsSI("V", "P", P_Pa, "T", T_K, b)
-                c = CP.PropsSI("L", "P", P_Pa, "T", T_K, b)
+                v = CP.PropsSI("V", "P", P_Pa, "T", T_K, resolved_b)
+                c = CP.PropsSI("L", "P", P_Pa, "T", T_K, resolved_b)
                 visc_sum += y_frac * v
                 cond_sum += y_frac * c
             except Exception:
-                mw = CP.PropsSI("M", b)
+                mw = CP.PropsSI("M", resolved_b)
                 mw_mix += y_frac * mw
                 visc_sum += y_frac * 1.5e-5
                 cond_sum += y_frac * 0.025

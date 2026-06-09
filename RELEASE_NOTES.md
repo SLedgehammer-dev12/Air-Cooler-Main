@@ -1,31 +1,31 @@
 # Air Cooler Main - v3.7.1 Release Notes
 
-Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu termal yük, boyutlandırma ve değerlendirme hesaplayıcısının **v3.7.1** sürümünü duyurmaktan mutluluk duyarız! Bu güncelleme ile uygulamaya güvenlik, yetkilendirme altyapısı ve gelişmiş mühendislik hesaplama yetenekleri kazandırılmıştır.
+Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu termal yük, boyutlandırma ve değerlendirme hesaplayıcısının **v3.7.1** sürümünü duyurmaktan mutluluk duyarız! Bu güncelleme, **v3.7.0**'ın kararlılık ve kullanıcı deneyimi iyileştirme sürümüdür.
 
 ---
 
 ## 🚀 Yeni Özellikler ve İyileştirmeler
 
-### 1. Güvenli Giriş ve Rol Yönetimi (Authentication & Authorization)
-*   **Kriptografik Güvenlik:** Şifreler düz metin olarak değil, kullanıcıya özel benzersiz **rastgele tuz (salt) + SHA-256** algoritmasıyla güvenli bir şekilde hash'lenerek saklanır.
-*   **Rol Tabanlı Arayüz:**
-    *   **admin:** Tüm hesaplama modüllerine (`⚙️ Girişler`, `📊 Rapor`, `📐 Gelişmiş Boyutlandırma`, `📜 Kayıtlar`) tam erişim sağlar.
-    *   **user:** Gelişmiş boyutlandırma sekmesini göremez, yalnızca temel sekmelere erişebilir.
-*   **Çıkış Yapma (Logout):** Sidebar üzerinden oturumu kapatma desteği eklenmiştir.
+### 1. Düzenlenebilir Karışım Tablosu (Editable Composition Table)
+*   **Mevcut karışım tablosundaki yüzde değerleri** artık doğrudan sayı girişi ile düzenlenebilir. Her bileşen satırında bir `number_input` bulunur.
+*   **4 ondalık haneli hassasiyet** (`%.4f`) ile hem giriş hem görüntüleme yapılır.
+*   Kullanıcı, bileşen eklemeden mevcut yüzdeleri ince ayar yaparak değiştirebilir.
 
-### 2. Gelişmiş Çapraz Akış Sizing & Rating (Boyutlandırma & Değerlendirme)
-*   **Basit Tasarım:** Cross-flow unmixed-unmixed (karışmayan-karışmayan) akış modeli için LMTD düzeltme faktörü ($F_t$) ve teorik ısı yükü hesabı.
-*   **Detaylı Boyutlandırma (Sizing):** Briggs-Young dış film ısı iletim katsayısı, Kern-Kraus kanatçık verimliliği ve ESDU hava tarafı basınç düşümü modellemeleri ile gerekli yüzey alanı, fan gücü ve gaz hızı sınır kontrolü.
-*   **Mevcut Durum Değerlendirme (Rating):** Geometrisi belli bir eşanjörün mevcut fan hava debisinde gaz çıkış sıcaklığı, transfer verimi ve basınç kayıpları hesabı.
+### 2. Akıllı Normalizasyon Sistemi (%99 Eşiği)
+*   Bileşen toplamı **%99.00 veya üzeri** olduğunda, otomatik normalize edilerek hesaplamaya izin verilir.
+*   Toplam %99.00'ın altındaysa kullanıcıya uyarı gösterilir.
+*   Normalize edilen her hesaplama için `ara_sonuclar["normalize_edildi"]` flag'i eklenir.
 
-### 3. Bağımlılık Yönetimi ve Derleme Kalitesi
-*   `requirements.txt`'ye eksik bağımlılıklar (`ht`, `fluids`, `scipy`) eklenerek `ModuleNotFoundError: No module named 'ht'` hatası kalıcı olarak giderildi.
-*   `air_cooler_main_app.py`'ye `import ht` eklenerek transitive import bağımlılığı ortadan kaldırıldı.
-*   PyInstaller spec dosyasına `ht`, `fluids`, `scipy` hidden imports olarak eklendi, çapraz platform build güvencesi artırıldı.
+### 3. CoolProp Fluid Adı Düzeltmesi
+*   `COOLPROP_COMPONENTS` sözlüğünde `"I-BUTANE"` → `"ISOBUTANE"`, `"I-PENTANE"` → `"ISOPENTANE"` olarak düzeltildi.
+*   **Geriye dönük uyumluluk:** Eski adlar (`"I-BUTANE"`, `"I-PENTANE"`) için `COOLPROP_ALIASES` haritası eklendi. Eski şablon/config dosyalarından gelen hatalı isimler otomatik çözümlenir.
+*   `_init_abstract_state`, `get_mixture_transport_properties`, `_kutlesel_mol_cevir` fonksiyonları alias üzerinden çalışır.
 
-### 4. macOS Derleme Desteği ve Test Güvencesi
-*   PyInstaller spec dosyası çapraz platform uyumlu hale getirilmiştir.
-*   Birim test kapsamı (test coverage) eklenen **13 yeni test senaryosu** ile %89'dan **%93** seviyesine yükseltilmiştir.
+### 4. Bağımlılık Yönetimi ve Test Kalitesi
+*   `requirements.txt`'ye eksik bağımlılıklar (`ht`, `fluids`, `scipy`) eklendi.
+*   `air_cooler_main_app.py`'ye `import ht` eklendi.
+*   PyInstaller spec hidden imports güncellendi.
+*   **8 yeni test** ile toplam 34 teste ulaşıldı, coverage %93.
 
 ---
 

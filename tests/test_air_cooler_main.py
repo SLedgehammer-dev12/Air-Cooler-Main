@@ -12,7 +12,10 @@ try:
         AmbiguousTwoPhaseInputError,
         AirFinnedGasCooler,
         HeatExchangerSizingError,
+        COOLPROP_ALIASES,
+        COOLPROP_COMPONENTS,
         Q_,
+        resolve_fluid_name,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
     IMPORT_ERROR = exc
@@ -501,6 +504,87 @@ class AirCoolerMainTests(unittest.TestCase):
                 overall_u_w_m2k=40.0,
                 correction_factor=-0.1,
             )
+
+
+    def test_isobutane_isopentane_composition(self):
+        komp = {
+            "ISOBUTANE": {"yuzde": 50.0, "tip": "Molar"},
+            "ISOPENTANE": {"yuzde": 50.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        q_g, q_i, uyari = cooler.hesapla_isi_yuku(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(58.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+        )
+        self.assertGreater(q_g.to("kW").m, 0.0)
+
+    def test_fluid_name_alias_resolution(self):
+        from air_cooler_main_core import resolve_fluid_name
+        self.assertEqual(resolve_fluid_name("I-BUTANE"), "ISOBUTANE")
+        self.assertEqual(resolve_fluid_name("I-PENTANE"), "ISOPENTANE")
+        self.assertEqual(resolve_fluid_name("METHANE"), "METHANE")
+
+    def test_all_coolprop_components_valid(self):
+        import CoolProp.CoolProp as CP
+        for name in COOLPROP_COMPONENTS:
+            resolved = resolve_fluid_name(name)
+            try:
+                M = CP.PropsSI("M", resolved)
+                self.assertGreater(M, 0.0)
+            except Exception as exc:
+                self.fail(f"CoolProp geçersiz bileşen: {name} -> {resolved}: {exc}")
+
+    def test_composition_normalization_below_100(self):
+        komp = {
+            "METHANE": {"yuzde": 89.5000, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0000, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        self.assertIn("normalize_edildi", cooler.ara_sonuclar)
+        self.assertTrue(cooler.ara_sonuclar["normalize_edildi"])
+        total_frac = sum(cooler.mol_kompozisyon_coolprop.values())
+        self.assertAlmostEqual(total_frac, 1.0, places=10)
+
+    def test_composition_normalization_above_100(self):
+        komp = {
+            "METHANE": {"yuzde": 90.5000, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0000, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        self.assertIn("normalize_edildi", cooler.ara_sonuclar)
+        total_frac = sum(cooler.mol_kompozisyon_coolprop.values())
+        self.assertAlmostEqual(total_frac, 1.0, places=10)
+
+    def test_four_decimal_precision(self):
+        komp = {
+            "METHANE": {"yuzde": 85.2500, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.5000, "tip": "Molar"},
+            "PROPANE": {"yuzde": 4.2500, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        q_g, q_i, uyari = cooler.hesapla_isi_yuku(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(58.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+        )
+        self.assertGreater(q_g.to("kW").m, 0.0)
+        total = sum(cooler.mol_kompozisyon_coolprop.values())
+        self.assertAlmostEqual(total, 1.0, places=10)
+
+    def test_composition_normalization_mass_basis(self):
+        komp = {
+            "METHANE": {"yuzde": 80.0000, "tip": "Kütlesel"},
+            "ETHANE": {"yuzde": 19.5000, "tip": "Kütlesel"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        self.assertIn("normalize_edildi", cooler.ara_sonuclar)
+        total_frac = sum(cooler.mol_kompozisyon_coolprop.values())
+        self.assertAlmostEqual(total_frac, 1.0, places=10)
+
+    def test_invalid_fluid_name_raises_error(self):
+        komp = {"TOTALYFAKE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        with self.assertRaises(Exception):
+            cooler._init_abstract_state()
 
 
 if __name__ == "__main__":

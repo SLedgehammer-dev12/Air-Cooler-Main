@@ -135,6 +135,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+def update_composition_pct():
+    for key in list(st.session_state.kompozisyon.keys()):
+        pct_key = f"pct_{key}"
+        if pct_key in st.session_state:
+            st.session_state.kompozisyon[key]["yuzde"] = st.session_state[pct_key]
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 if "username" not in st.session_state:
@@ -278,8 +284,8 @@ def validate_inputs(flow_v, p_in, p_out, t_in, t_out, t_unit, air_in, air_out, o
         return "Lütfen en az bir gaz bileşeni ekleyin."
 
     total = sum(v["yuzde"] for v in st.session_state["kompozisyon"].values())
-    if abs(total - 100.0) > 0.001:
-        return "Bileşenlerin toplamı tam olarak %100.00 olmalıdır."
+    if total < 99.0:
+        return f"Bileşen toplamı %{total:.4f} — en az %99.0000 olmalıdır."
 
     if flow_v <= 0:
         return "Debi 0'dan büyük olmalıdır."
@@ -512,9 +518,11 @@ def draw_advanced_design():
         return
         
     total_comp = sum(v["yuzde"] for v in st.session_state.kompozisyon.values())
-    if abs(total_comp - 100.0) > 0.01:
-        st.warning(f"⚠️ Karışım bileşeni toplamı %{total_comp:.2f}. Hesaplama yapabilmek için toplam tam %100 olmalıdır.")
+    if total_comp < 99.0:
+        st.warning(f"⚠️ Karışım bileşeni toplamı %{total_comp:.4f}. En az %99.0000 olmalıdır.")
         return
+    if abs(total_comp - 100.0) > 0.01:
+        st.info(f"ℹ️ Toplam %{total_comp:.4f} — normalize edilerek hesaplanacak.")
 
     # 1. Proses Girdileri (Ortak)
     with st.container(border=True):
@@ -927,7 +935,7 @@ def draw_main():
                     label_visibility="collapsed",
                 )
             with comp_col2:
-                b_val = st.number_input("Yüzde", 0.0, 100.0, 0.0, 0.1, label_visibility="collapsed")
+                b_val = st.number_input("Yüzde", 0.0, 100.0, 0.0, 0.0001, format="%.4f", label_visibility="collapsed")
             with comp_col3:
                 b_tip = st.radio("Tip", ["Molar", "Kütlesel"], horizontal=True, label_visibility="collapsed")
 
@@ -947,12 +955,17 @@ def draw_main():
 
         if st.session_state.get("kompozisyon"):
             with st.container(border=True):
-                st.markdown("**Mevcut Karışım**")
+                st.markdown("**Mevcut Karışım (tıklayarak düzenle)**")
                 for key in list(st.session_state.kompozisyon.keys()):
                     val = st.session_state.kompozisyon[key]
-                    row1, row2, row3, row4 = st.columns([4, 2, 2, 1])
+                    row1, row2, row3, row4 = st.columns([4, 2.5, 2, 1])
                     row1.write(f"🧪 {COOLPROP_COMPONENTS[key]}")
-                    row2.write(f"% {val['yuzde']:.2f}")
+                    row2.number_input(
+                        "%", min_value=0.0, max_value=100.0,
+                        value=float(val["yuzde"]), step=0.0001, format="%.4f",
+                        key=f"pct_{key}", label_visibility="collapsed",
+                        on_change=update_composition_pct,
+                    )
                     row3.write(val["tip"])
                     if row4.button("❌", key=f"del_{key}", help=f"{COOLPROP_COMPONENTS[key]} sil"):
                         del st.session_state.kompozisyon[key]
@@ -960,10 +973,12 @@ def draw_main():
 
             total = sum(v["yuzde"] for v in st.session_state.kompozisyon.values())
             tip = list(st.session_state.kompozisyon.values())[0]["tip"]
-            if abs(total - 100.0) > 0.001:
-                st.error(f"⚠️ Toplam: %{total:.2f} (Tam %100 olmalıdır.)")
+            if total < 99.0:
+                st.error(f"⚠️ Toplam: %{total:.4f} (En az %99.0000 olmalıdır.)")
+            elif abs(total - 100.0) > 0.01:
+                st.info(f"ℹ️ Toplam: %{total:.4f} — normalize edilerek hesaplanacak ({tip})")
             else:
-                st.success(f"✅ Toplam: %100.00 ({tip})")
+                st.success(f"✅ Toplam: %100.0000 ({tip})")
 
         st.divider()
         st.header("2. Şema Üzerinden Veri Girişi")
