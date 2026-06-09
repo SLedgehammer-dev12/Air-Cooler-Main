@@ -1,5 +1,7 @@
+import json
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
 
@@ -793,3 +795,164 @@ class AirCoolerMainTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from air_cooler_main_app import (
+    serialize_inputs,
+    load_project_file,
+    get_engine_keys,
+)
+
+
+def _make_state(data):
+    """dict → dict + attribute access (like st.session_state)."""
+    class FakeState(dict):
+        def __getattr__(self, k):
+            try:
+                return self[k]
+            except KeyError:
+                raise AttributeError(k)
+        def __setattr__(self, k, v):
+            self[k] = v
+    fs = FakeState(data)
+    fs.update(data)
+    return fs
+
+
+class SaveLoadTests(unittest.TestCase):
+    def test_serialize_inputs_contains_all_sections(self):
+        state = _make_state({
+            "kompozisyon": {"METHANE": {"yuzde": 100.0, "tip": "Molar"}},
+            "ui_p_u": "bar(a)", "ui_t_u": "°C", "ui_flow_u": "Sm3/h",
+            "adv_p_u": "bar(a)", "adv_t_u": "°C", "adv_flow_u": "Sm3/h",
+            "ui_flow": 15.0, "ui_p_in": 60.0, "ui_t_in": 100.0,
+            "ui_p_out": 58.0, "ui_t_out": 40.0,
+            "ui_air_in": 25.0, "ui_air_out": 45.0,
+            "q_engine": "CoolProp", "q_eos_label": "PR",
+            "ui_overall_u": 35.0, "ui_cf": 0.90,
+            "adv_mode": "Basit Dizayn (Teorik Isı Yükü)",
+            "adv_flow_v": 15.0, "adv_p_in": 60.0, "adv_t_in": 100.0,
+            "adv_t_out": 40.0, "adv_p_out": 58.0,
+            "adv_engine": "neqsim", "adv_eos_label": "GERG-2008",
+            "adv_t_u": "°C", "adv_p_u": "bar(a)", "adv_flow_u": "Sm3/h",
+            "adv_tube_od": 25.4, "adv_tube_thick": 2.11,
+            "adv_tube_len": 6.0, "adv_tubes_per_row": 24,
+            "adv_layout_angle": 30, "adv_pitch_normal": 63.5,
+            "adv_fin_height": 15.9, "adv_fin_thick": 0.4,
+            "adv_fin_fpi": 10.0, "adv_tube_mat": "Karbon Çelik (50 W/mK)",
+            "adv_fin_mat": "Alüminyum (205 W/mK)",
+            "adv_fouling_in": 0.000176, "adv_fouling_out": 0.000088,
+            "adv_fan_eff": 65.0,
+            "air_in_s": 25.0, "air_out_s": 45.0,
+            "rows_size": 4, "passes_size": 4,
+            "r_od": 25.4, "r_thick": 2.11, "r_len": 6.0, "r_tubes": 24,
+            "r_angle": 30, "r_pitch": 63.5, "r_fin_h": 15.9, "r_fin_t": 0.4,
+            "r_fpi": 10.0, "r_tmat": "Karbon Çelik (50 W/mK)",
+            "r_fmat": "Alüminyum (205 W/mK)", "r_fi": 0.000176, "r_fo": 0.000088,
+            "r_air_in": 25.0, "r_fan_flow": 150000.0,
+            "rows_rating": 4, "passes_rating": 4,
+        })
+
+        raw = serialize_inputs(state=state)
+        data = json.loads(raw)
+
+        self.assertIn("version", data)
+        self.assertIn("inputs", data)
+        inp = data["inputs"]
+        self.assertIn("composition", inp)
+        self.assertIn("units", inp)
+        self.assertIn("quick_tab", inp)
+        self.assertIn("advanced_tab", inp)
+        self.assertEqual(inp["composition"]["METHANE"]["yuzde"], 100.0)
+        self.assertEqual(inp["quick_tab"]["p_in"], 60.0)
+        self.assertEqual(inp["advanced_tab"]["mode"], "Basit Dizayn (Teorik Isı Yükü)")
+        self.assertIn("geometry", inp["advanced_tab"])
+        self.assertIn("rating_geometry", inp["advanced_tab"])
+        self.assertEqual(inp["advanced_tab"]["geometry"]["tube_od"], 25.4)
+
+    def test_load_project_file_restores_all_values(self):
+        data = {
+            "version": "1.0",
+            "inputs": {
+                "composition": {"METHANE": {"yuzde": 95.0, "tip": "Molar"}},
+                "units": {"p_unit": "bar(a)", "t_unit": "°C", "flow_u": "Sm3/h",
+                          "adv_p_u": "bar(a)", "adv_t_u": "°C", "adv_flow_u": "Sm3/h"},
+                "quick_tab": {
+                    "flow_v": 20.0, "p_in": 70.0, "t_in": 110.0,
+                    "p_out": 68.0, "t_out": 45.0,
+                    "air_in": 30.0, "air_out": 50.0,
+                    "engine": "neqsim", "eos_label": "SRK",
+                    "overall_u": 40.0, "correction_factor": 0.85,
+                },
+                "advanced_tab": {
+                    "mode": "Detaylı Boyutlandırma (Sizing)",
+                    "flow_v": 20.0, "p_in": 70.0, "t_in": 110.0,
+                    "t_out": 45.0, "p_out": 68.0,
+                    "engine": "neqsim", "eos_label": "PR",
+                    "t_u": "°C", "p_u": "bar(a)", "flow_u": "Sm3/h",
+                    "geometry": {"tube_od": 50.0, "tube_thick": 3.0},
+                    "rating_geometry": {"r_od": 38.0, "r_fan_flow": 200000.0},
+                }
+            }
+        }
+        state = {}
+        load_project_file(data, state=state)
+        self.assertEqual(state["kompozisyon"]["METHANE"]["yuzde"], 95.0)
+        self.assertEqual(state["ui_p_in"], 70.0)
+        self.assertEqual(state["q_eos_label"], "SRK")
+        self.assertEqual(state["adv_mode"], "Detaylı Boyutlandırma (Sizing)")
+        self.assertEqual(state["adv_tube_od"], 50.0)
+        self.assertEqual(state["adv_tube_thick"], 3.0)
+        self.assertEqual(state["r_od"], 38.0)
+        self.assertEqual(state["r_fan_flow"], 200000.0)
+        self.assertFalse(state["eos_warning_accepted"])
+        self.assertFalse(state["q_eos_warning_accepted"])
+
+    def test_serialize_roundtrip_preserves_values(self):
+        orig = {
+            "kompozisyon": {"METHANE": {"yuzde": 100.0, "tip": "Molar"}},
+            "ui_p_u": "bar(a)", "ui_t_u": "°C", "ui_flow_u": "Sm3/h",
+            "adv_p_u": "bar(a)", "adv_t_u": "°C", "adv_flow_u": "Sm3/h",
+            "ui_flow": 15.0, "ui_p_in": 60.0, "ui_t_in": 100.0,
+            "ui_p_out": 58.0, "ui_t_out": 40.0,
+            "ui_air_in": 25.0, "ui_air_out": 45.0,
+            "q_engine": "CoolProp", "q_eos_label": "PR",
+            "ui_overall_u": 35.0, "ui_cf": 0.90,
+            "adv_mode": "Basit Dizayn (Teorik Isı Yükü)",
+            "adv_flow_v": 15.0, "adv_p_in": 60.0, "adv_t_in": 100.0,
+            "adv_t_out": 40.0, "adv_p_out": 58.0,
+            "adv_engine": "neqsim", "adv_eos_label": "GERG-2008",
+            "adv_t_u": "°C", "adv_p_u": "bar(a)", "adv_flow_u": "Sm3/h",
+            "adv_tube_od": 25.4, "adv_tube_thick": 2.11,
+            "adv_tube_len": 6.0, "adv_tubes_per_row": 24,
+            "adv_layout_angle": 30, "adv_pitch_normal": 63.5,
+            "adv_fin_height": 15.9, "adv_fin_thick": 0.4,
+            "adv_fin_fpi": 10.0, "adv_tube_mat": "Karbon Çelik (50 W/mK)",
+            "adv_fin_mat": "Alüminyum (205 W/mK)",
+            "adv_fouling_in": 0.000176, "adv_fouling_out": 0.000088,
+            "adv_fan_eff": 65.0,
+            "air_in_s": 25.0, "air_out_s": 45.0,
+            "rows_size": 4, "passes_size": 4,
+            "r_od": 25.4, "r_thick": 2.11, "r_len": 6.0, "r_tubes": 24,
+            "r_angle": 30, "r_pitch": 63.5, "r_fin_h": 15.9, "r_fin_t": 0.4,
+            "r_fpi": 10.0, "r_tmat": "Karbon Çelik (50 W/mK)",
+            "r_fmat": "Alüminyum (205 W/mK)", "r_fi": 0.000176, "r_fo": 0.000088,
+            "r_air_in": 25.0, "r_fan_flow": 150000.0,
+            "rows_rating": 4, "passes_rating": 4,
+        }
+        state = _make_state(orig)
+
+        raw = serialize_inputs(state=state)
+        data = json.loads(raw)
+
+        restored = {}
+        load_project_file(data, state=restored)
+
+        self.assertEqual(restored["kompozisyon"]["METHANE"]["yuzde"], 100.0)
+        self.assertEqual(restored["ui_p_in"], 60.0)
+        self.assertEqual(restored["ui_t_in"], 100.0)
+        self.assertEqual(restored["q_engine"], "CoolProp")
+        self.assertEqual(restored["adv_engine"], "neqsim")
+        self.assertEqual(restored["adv_tube_od"], 25.4)
+        self.assertEqual(restored["r_od"], 25.4)
+        self.assertEqual(restored["r_fan_flow"], 150000.0)

@@ -165,6 +165,8 @@ if "eos_warning_accepted" not in st.session_state:
     st.session_state.eos_warning_accepted = False
 if "q_eos_warning_accepted" not in st.session_state:
     st.session_state.q_eos_warning_accepted = False
+if "show_file_loader" not in st.session_state:
+    st.session_state.show_file_loader = False
 
 users_db = initialize_users_db(USERS_FILE)
 
@@ -609,6 +611,7 @@ def draw_advanced_design():
 
     # 2. Mod Seçimi ve Özel Girdiler
     mode = st.radio("Çalışma Modu Seçin", ["Basit Dizayn (Teorik Isı Yükü)", "Detaylı Boyutlandırma (Sizing)", "Eşanjör Değerlendirme (Rating)"], horizontal=True)
+    st.session_state["adv_mode"] = mode
     
     if mode == "Basit Dizayn (Teorik Isı Yükü)":
         st.info("ℹ️ **Basit Dizayn Modu:** Bu modülde, girilen doğalgaz karışımının verilen şartlardan çıkış şartlarına soğutulması için gereken teorik ısı geçiş miktarı hesaplanır. Akış tipi **Cross-flow (Çapraz Akış - Karışmayan Akışkanlar)** olarak kabul edilir.")
@@ -704,34 +707,35 @@ def draw_advanced_design():
             st.markdown("**📐 Eşanjör Geometrisi & Finli Boru Girdileri**")
             g_col1, g_col2, g_col3, g_col4 = st.columns(4)
             with g_col1:
-                tube_od = st.number_input("Boru Dış Çapı (mm)", min_value=5.0, max_value=100.0, value=25.4, help="API 661 standardı için minimum 25.4 mm (1 inç) veya 20 mm önerilir.")
-                tube_thick = st.number_input("Boru Duvar Kalınlığı (mm)", min_value=0.5, max_value=10.0, value=2.11, help="14 BWG standardı: 2.11 mm")
+                tube_od = st.number_input("Boru Dış Çapı (mm)", min_value=5.0, max_value=100.0, value=25.4, help="API 661 standardı için minimum 25.4 mm (1 inç) veya 20 mm önerilir.", key="adv_tube_od")
+                tube_thick = st.number_input("Boru Duvar Kalınlığı (mm)", min_value=0.5, max_value=10.0, value=2.11, help="14 BWG standardı: 2.11 mm", key="adv_tube_thick")
             with g_col2:
-                tube_len = st.number_input("Boru Boyu (m)", min_value=1.0, max_value=24.0, value=6.0)
-                tubes_per_row = st.number_input("Sıra Başına Boru Sayısı", min_value=5, max_value=200, value=24)
+                tube_len = st.number_input("Boru Boyu (m)", min_value=1.0, max_value=24.0, value=6.0, key="adv_tube_len")
+                tubes_per_row = st.number_input("Sıra Başına Boru Sayısı", min_value=5, max_value=200, value=24, key="adv_tubes_per_row")
             with g_col3:
                 tube_rows = st.number_input("Boru Sıra Sayısı", min_value=1, max_value=12, value=4, key="rows_size")
                 tube_passes = st.number_input("Akış Geçiş Sayısı", min_value=1, max_value=12, value=4, key="passes_size")
             with g_col4:
-                layout_angle = st.selectbox("Dizilim Açısı", [30, 90], format_func=lambda x: "30° (Üçgen)" if x == 30 else "90° (Kare)")
-                pitch_normal = st.number_input("Boru Eksene Adımı (mm)", min_value=10.0, max_value=200.0, value=63.5, help="Tüplerin merkezleri arasındaki mesafe. 2.5 inç standardı: 63.5 mm")
+                layout_angle = st.selectbox("Dizilim Açısı", [30, 90], format_func=lambda x: "30° (Üçgen)" if x == 30 else "90° (Kare)", key="adv_layout_angle")
+                pitch_normal = st.number_input("Boru Eksene Adımı (mm)", min_value=10.0, max_value=200.0, value=63.5, help="Tüplerin merkezleri arasındaki mesafe. 2.5 inç standardı: 63.5 mm", key="adv_pitch_normal")
 
             g_col5, g_col6, g_col7, g_col8 = st.columns(4)
             with g_col5:
-                fin_height = st.number_input("Kanatçık Yüksekliği (mm)", min_value=2.0, max_value=50.0, value=15.9, help="0.625 inç standardı: 15.9 mm")
-                fin_thick = st.number_input("Kanatçık Kalınlığı (mm)", min_value=0.1, max_value=5.0, value=0.4)
+                fin_height = st.number_input("Kanatçık Yüksekliği (mm)", min_value=2.0, max_value=50.0, value=15.9, help="0.625 inç standardı: 15.9 mm", key="adv_fin_height")
+                fin_thick = st.number_input("Kanatçık Kalınlığı (mm)", min_value=0.1, max_value=5.0, value=0.4, key="adv_fin_thick")
             with g_col6:
-                fin_fpi = st.number_input("İnç Başına Kanatçık (FPI)", min_value=2.0, max_value=30.0, value=10.0)
+                fin_fpi = st.number_input("İnç Başına Kanatçık (FPI)", min_value=2.0, max_value=30.0, value=10.0, key="adv_fin_fpi")
             with g_col7:
-                tube_mat = st.selectbox("Boru Malzemesi (İletkenlik)", ["Karbon Çelik (50 W/mK)", "Paslanmaz Çelik (15 W/mK)", "Bakır (385 W/mK)"])
-                fin_mat = st.selectbox("Kanatçık Malzemesi (İletkenlik)", ["Alüminyum (205 W/mK)", "Bakır (385 W/mK)"])
+                tube_mat = st.selectbox("Boru Malzemesi (İletkenlik)", ["Karbon Çelik (50 W/mK)", "Paslanmaz Çelik (15 W/mK)", "Bakır (385 W/mK)"], key="adv_tube_mat")
+                fin_mat = st.selectbox("Kanatçık Malzemesi (İletkenlik)", ["Alüminyum (205 W/mK)", "Bakır (385 W/mK)"], key="adv_fin_mat")
             with g_col8:
-                fouling_in = st.number_input("Boru İçi Kirlenme (m²K/W)", min_value=0.0, value=0.000176, format="%.6f", help="TEMA standardı doğalgaz kirlenme katsayısı: 0.000176")
-                fouling_out = st.number_input("Hava Kirlenme Katsayısı (m²K/W)", min_value=0.0, value=0.000088, format="%.6f")
+                fouling_in = st.number_input("Boru İçi Kirlenme (m²K/W)", min_value=0.0, value=0.000176, format="%.6f", help="TEMA standardı doğalgaz kirlenme katsayısı: 0.000176", key="adv_fouling_in")
+                fouling_out = st.number_input("Hava Kirlenme Katsayısı (m²K/W)", min_value=0.0, value=0.000088, format="%.6f", key="adv_fouling_out")
 
             g_col9, g_col10, g_col11 = st.columns(3)
             with g_col9:
-                fan_eff = st.number_input("Fan Toplam Verimi (%)", min_value=10.0, max_value=100.0, value=65.0) / 100.0
+                fan_eff_raw = st.number_input("Fan Toplam Verimi (%)", min_value=10.0, max_value=100.0, value=65.0, key="adv_fan_eff")
+                fan_eff = fan_eff_raw / 100.0
             with g_col10:
                 default_air_in_s = 25.0 if adv_t_unit != "K" else 298.15
                 air_in_s = st.number_input("Tasarım Hava Giriş Sıcaklığı", min_value=min_temp, value=default_air_in_s, key="air_in_s")
@@ -954,12 +958,206 @@ def draw_advanced_design():
                 st.error(f"Değerlendirme hatası: {e}")
                 log_error("Değerlendirme hesaplama hatası.", e)
 
+
+# ═══════════════════════════════════════════════════════════
+# PROJE KAYDET / AÇ
+# ═══════════════════════════════════════════════════════════
+
+def serialize_inputs(state=None):
+    """Tüm girdileri JSON-serializable dict'e çevirir."""
+    if state is None:
+        state = st.session_state
+    _s = state.get  # shorthand
+    inp = {"version": "1.0", "timestamp": datetime.now().isoformat(), "inputs": {}}
+    i = inp["inputs"]
+
+    i["composition"] = _s("kompozisyon", {})
+
+    i["units"] = {
+        "p_unit": _s("ui_p_u", "bar(a)"),
+        "t_unit": _s("ui_t_u", "°C"),
+        "flow_u": _s("ui_flow_u", "Sm3/h"),
+        "adv_p_u": _s("adv_p_u", "bar(a)"),
+        "adv_t_u": _s("adv_t_u", "°C"),
+        "adv_flow_u": _s("adv_flow_u", "Sm3/h"),
+    }
+
+    i["quick_tab"] = {
+        "flow_v": _s("ui_flow", 15.0),
+        "p_in": _s("ui_p_in", 60.0),
+        "t_in": _s("ui_t_in", 100.0),
+        "p_out": _s("ui_p_out", 58.0),
+        "t_out": _s("ui_t_out", 40.0),
+        "air_in": _s("ui_air_in", 25.0),
+        "air_out": _s("ui_air_out", 45.0),
+        "engine": _s("q_engine", get_engine_keys()[0]),
+        "eos_label": _s("q_eos_label", None),
+        "overall_u": _s("ui_overall_u", 35.0),
+        "correction_factor": _s("ui_cf", 0.90),
+    }
+
+    adv = {"mode": _s("adv_mode", "Basit Dizayn (Teorik Isı Yükü)")}
+
+    for k in ("flow_v", "p_in", "t_in", "t_out", "p_out",
+              "engine", "eos_label", "t_u", "p_u", "flow_u"):
+        sk = f"adv_{k}"
+        v = _s(sk)
+        if v is not None:
+            adv[k] = v
+
+    geom_keys = {
+        "tube_od": 25.4, "tube_thick": 2.11, "tube_len": 6.0,
+        "tubes_per_row": 24, "layout_angle": 30, "pitch_normal": 63.5,
+        "fin_height": 15.9, "fin_thick": 0.4, "fin_fpi": 10.0,
+        "tube_mat": "Karbon Çelik (50 W/mK)", "fin_mat": "Alüminyum (205 W/mK)",
+        "fouling_in": 0.000176, "fouling_out": 0.000088, "fan_eff": 65.0,
+    }
+    geom = {}
+    for gk, gdefault in geom_keys.items():
+        sk = f"adv_{gk}"
+        geom[gk] = _s(sk, gdefault)
+    adv["geometry"] = geom
+
+    rgeom_keys = {
+        "r_od": 25.4, "r_thick": 2.11, "r_len": 6.0, "r_tubes": 24,
+        "r_angle": 30, "r_pitch": 63.5, "r_fin_h": 15.9, "r_fin_t": 0.4,
+        "r_fpi": 10.0, "r_tmat": "Karbon Çelik (50 W/mK)",
+        "r_fmat": "Alüminyum (205 W/mK)", "r_fi": 0.000176, "r_fo": 0.000088,
+        "r_air_in": 25.0, "r_fan_flow": 150000.0,
+    }
+    for gk in ("rows_rating", "passes_rating"):
+        v = _s(gk)
+        if v is not None:
+            rgeom_keys[gk] = v
+    rgeom = {}
+    for gk, gdefault in rgeom_keys.items():
+        rgeom[gk] = _s(gk, gdefault)
+    adv["rating_geometry"] = rgeom
+
+    for k in ("air_in_b", "air_out_b", "rows_b", "passes_b"):
+        sk = f"adv_{k}"
+        v = _s(sk)
+        if v is not None:
+            adv[k] = v
+
+    for k in ("air_in_s", "air_out_s"):
+        v = _s(k)
+        if v is not None:
+            adv[k] = v
+
+    i["advanced_tab"] = adv
+
+    return json.dumps(inp, ensure_ascii=False, indent=2)
+
+
+def load_project_file(data, state=None):
+    """JSON proje dosyasından session_state'i günceller."""
+    if state is None:
+        state = st.session_state
+    i = data.get("inputs", {})
+
+    if "composition" in i:
+        state["kompozisyon"] = i["composition"]
+
+    for sk, sv in i.get("units", {}).items():
+        state[sk] = sv
+
+    qt = i.get("quick_tab", {})
+    qmap = {"flow_v": "ui_flow", "p_in": "ui_p_in", "t_in": "ui_t_in",
+            "p_out": "ui_p_out", "t_out": "ui_t_out", "air_in": "ui_air_in",
+            "air_out": "ui_air_out", "overall_u": "ui_overall_u",
+            "correction_factor": "ui_cf", "engine": "q_engine",
+            "eos_label": "q_eos_label"}
+    for qk, sk in qmap.items():
+        if qk in qt:
+            state[sk] = qt[qk]
+
+    at = i.get("advanced_tab", {})
+    if "mode" in at:
+        state["adv_mode"] = at["mode"]
+    amap = {"flow_v": "adv_flow_v", "p_in": "adv_p_in", "t_in": "adv_t_in",
+            "t_out": "adv_t_out", "p_out": "adv_p_out",
+            "engine": "adv_engine", "eos_label": "adv_eos_label",
+            "t_u": "adv_t_u", "p_u": "adv_p_u", "flow_u": "adv_flow_u"}
+    for ak, sk in amap.items():
+        if ak in at:
+            state[sk] = at[ak]
+
+    gmap = {"tube_od": "adv_tube_od", "tube_thick": "adv_tube_thick",
+            "tube_len": "adv_tube_len", "tubes_per_row": "adv_tubes_per_row",
+            "layout_angle": "adv_layout_angle", "pitch_normal": "adv_pitch_normal",
+            "fin_height": "adv_fin_height", "fin_thick": "adv_fin_thick",
+            "fin_fpi": "adv_fin_fpi", "tube_mat": "adv_tube_mat",
+            "fin_mat": "adv_fin_mat", "fouling_in": "adv_fouling_in",
+            "fouling_out": "adv_fouling_out", "fan_eff": "adv_fan_eff"}
+    for gk, sk in gmap.items():
+        v = at.get("geometry", {}).get(gk)
+        if v is not None:
+            state[sk] = v
+
+    rmap = {"r_od": "r_od", "r_thick": "r_thick", "r_len": "r_len",
+            "r_tubes": "r_tubes", "r_angle": "r_angle", "r_pitch": "r_pitch",
+            "r_fin_h": "r_fin_h", "r_fin_t": "r_fin_t", "r_fpi": "r_fpi",
+            "r_tmat": "r_tmat", "r_fmat": "r_fmat", "r_fi": "r_fi",
+            "r_fo": "r_fo", "r_air_in": "r_air_in", "r_fan_flow": "r_fan_flow",
+            "rows_rating": "rows_rating", "passes_rating": "passes_rating"}
+    for gk, sk in rmap.items():
+        v = at.get("rating_geometry", {}).get(gk)
+        if v is not None:
+            state[sk] = v
+
+    for k in ("air_in_b", "air_out_b", "rows_b", "passes_b"):
+        v = at.get(k)
+        if v is not None:
+            state[f"adv_{k}"] = v
+    for k in ("air_in_s", "air_out_s"):
+        v = at.get(k)
+        if v is not None:
+            state[k] = v
+
+    state["eos_warning_accepted"] = False
+    state["q_eos_warning_accepted"] = False
+
+
 def draw_main():
     st.title(f"🌡️ {APP_DISPLAY_NAME} | Gaz Soğutucu Termal Yük Hesaplayıcı")
     st.caption("Doğal gaz ve hidrokarbon karışımları için termal yük ve ön boyutlandırma tahmini")
     draw_release_notes()
 
     role = st.session_state.get("role", "user")
+
+    # ── Proje Kaydet / Aç Toolbar ──
+    tb_col1, tb_col2, tb_col3, tb_col4 = st.columns([4, 1, 1, 6])
+    with tb_col2:
+        proje_json = serialize_inputs()
+        st.download_button(
+            "💾 Kaydet",
+            data=proje_json,
+            file_name=f"air_cooler_{datetime.now():%Y%m%d_%H%M}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    with tb_col3:
+        if st.button("📂 Aç", use_container_width=True):
+            st.session_state.show_file_loader = True
+            st.rerun()
+    if st.session_state.show_file_loader:
+        with tb_col4:
+            uploaded = st.file_uploader("Proje dosyası seçin", type="json", label_visibility="collapsed")
+            if uploaded:
+                try:
+                    data = json.loads(uploaded.read().decode("utf-8"))
+                    load_project_file(data)
+                    st.session_state.show_file_loader = False
+                    st.success(f"✅ Proje yüklendi: {uploaded.name}")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Dosya yüklenemedi: {exc}")
+                    st.session_state.show_file_loader = False
+    if proje_json != "{}":
+        st.caption("Proje kaydetmek/açmak için üstteki butonları kullanın.")
+    st.divider()
+
     if role == "admin":
         tab_inputs, tab_report, tab_new_design, tab_logs = st.tabs(["⚙️ Girişler", "📊 Rapor", "📐 Gelişmiş Boyutlandırma", "📜 Kayıtlar"])
     else:
@@ -1057,13 +1255,13 @@ def draw_main():
                     flow_u = st.selectbox("Birim", UNITS["Akış Miktarı"], key="ui_flow_u")
 
                 p_unit = st.selectbox("Basınç Birimi", UNITS["Basınç"], key="ui_p_u")
-                p_in = st.number_input("Giriş Basıncı", min_value=0.0, value=60.0, format="%.2f")
+                p_in = st.number_input("Giriş Basıncı", min_value=0.0, value=60.0, format="%.2f", key="ui_p_in")
 
                 t_unit = st.selectbox("Sıcaklık Birimi", UNITS["Sıcaklık"], key="ui_t_u")
                 min_temp = {"°C": -273.15, "K": 0.0, "°F": -459.67}[t_unit]
                 default_in = 107.0 if t_unit != "K" else 380.15
                 default_out = 37.0 if t_unit != "K" else 310.15
-                t_in = st.number_input("Giriş Sıc.", min_value=min_temp, value=default_in, format="%.2f")
+                t_in = st.number_input("Giriş Sıc.", min_value=min_temp, value=default_in, format="%.2f", key="ui_t_in")
 
             st.markdown('<div class="ac-spacer-md"></div>', unsafe_allow_html=True)
 
@@ -1079,7 +1277,7 @@ def draw_main():
 
             with st.container(border=True):
                 draw_station_header("B1", "Alt Hava Girişi", "Fan altından bundle içine giren hava", "air-in")
-                air_in = st.number_input("Hava Giriş Sıc.", min_value=min_temp, value=default_air_in, format="%.2f")
+                air_in = st.number_input("Hava Giriş Sıc.", min_value=min_temp, value=default_air_in, format="%.2f", key="ui_air_in")
 
         with layout_mid:
             draw_gas_cooler_schematic()
@@ -1093,8 +1291,9 @@ def draw_main():
                     value=p_in,
                     format="%.2f",
                     help="Bilinmiyorsa giriş ile aynı bırakın.",
+                    key="ui_p_out",
                 )
-                t_out = st.number_input("Çıkış Sıc.", min_value=min_temp, value=default_out, format="%.2f")
+                t_out = st.number_input("Çıkış Sıc.", min_value=min_temp, value=default_out, format="%.2f", key="ui_t_out")
 
             with st.container(border=True):
                 draw_station_header("C1", "Bundle / UA", "EOS seçimi ve ön boyutlandırma parametreleri", "design")
@@ -1147,6 +1346,7 @@ def draw_main():
                     value=35.0,
                     step=1.0,
                     help="Finned air cooler için kullanıcı tanımlı ön toplam ısı transfer katsayısı.",
+                    key="ui_overall_u",
                 )
                 correction_factor = st.number_input(
                     "LMTD Düzeltme Faktörü F",
@@ -1156,13 +1356,14 @@ def draw_main():
                     step=0.01,
                     format="%.2f",
                     help="Karşı-akış eşdeğeri LMTD üzerine uygulanan düzeltme faktörü.",
+                    key="ui_cf",
                 )
 
             st.markdown('<div class="ac-spacer-sm"></div>', unsafe_allow_html=True)
 
             with st.container(border=True):
                 draw_station_header("B2", "Üst Hava Çıkışı", "Bundle üzerinden ısınarak çıkan hava", "air-out")
-                air_out = st.number_input("Hava Çıkış Sıc.", min_value=min_temp, value=default_air_out, format="%.2f")
+                air_out = st.number_input("Hava Çıkış Sıc.", min_value=min_temp, value=default_air_out, format="%.2f", key="ui_air_out")
 
         btn_col1, btn_col2, btn_col3 = st.columns([1, 1.2, 1])
         with btn_col2:
