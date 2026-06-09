@@ -26,6 +26,14 @@ Two-level selection: **Engine** (CoolProp / neqsim) → **EOS** filtered by engi
 - Plotly bar chart in comparison (percent diff from reference)
 - JVM started on demand (lazy), `_JVM_STARTED` flag prevents double-init
 - neqsim GERG-2008 matches CoolProp HEOS within 0.024% on Δh
+- `serialize_inputs(state)` / `load_project_file(data, state)` accept optional state param for testability
+- All ~40 unkeyed inputs now have `key=` session_state bindings for save/load serialization
+
+## Save/Load Feature
+- Proje dosyası: `.json` formatı, 💾 Kaydet / 📂 Aç toolbar (Girişler sekmesi üstü)
+- `st.download_button` ile JSON indirme (sunucuda depolama yok)
+- `st.file_uploader` ile yükleme → `load_project_file()` → `st.rerun()`
+- 3 test: serialize_inputs yapısı, load_project_file geri yükleme, roundtrip uyumu
 
 ## Benchmark Results (Q match vs HEOS)
 | Scenario | PR | SRK | GERG-2008 |
