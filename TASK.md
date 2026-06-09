@@ -6,30 +6,28 @@
 
 ## Son Tamamlananlar
 
-- Çalışma klasörü kalıcı olarak `Air Cooler Main` altında kuruldu.
-- Çekirdek hesap motoru UI'dan ayrıldı.
-- Belirsiz iki-faz `P-T` noktaları güvenli hata ile engellendi.
-- İdeal gaz referansı düzeltildi.
-- UA / LMTD / gerekli alan ön boyutlandırması eklendi.
-- Gas cooler şeması oluşturuldu ve A1/A2/B1/B2/C1 giriş yerleşimi kuruldu.
-- Birim testleri ve Streamlit smoke testleri başarıyla çalıştırıldı.
-- PyInstaller ile Windows standalone paket oluşturuldu.
-- Public GitHub repo ve `v3.6.0` release yayınlandı.
+- Güvenli Giriş Sistemi (SHA-256 + Salt) ve Admin/User rolleri eklendi.
+- Gelişmiş 3-Kademeli Boyutlandırma (Basit/Detaylı/Değerlendirme) modülleri entegre edildi.
+- Briggs-Young, Kern-Kraus, ESDU korelasyonları ile hava tarafı modeli derinleştirildi.
+- Test kapsamı %93'e yükseltildi (26 test).
+- `ModuleNotFoundError: No module named 'ht'` hatası giderildi.
+- `requirements.txt` güncellendi; `air_cooler_main_app.py`'ye `import ht` eklendi.
+- PyInstaller spec hidden imports (`ht`, `fluids`, `scipy`) eklendi.
+- macOS standalone paket desteği eklendi.
+- Sürüm 3.7.1'e yükseltildi.
 
 ## Şu An Nerede Kaldık
 
-- Uygulama kaynak kodu repoda.
-- Windows dağıtım paketi release'e yüklendi.
-- Standalone paket smoke testte çalıştı.
-- Bir sonraki gerçek mühendislik adımı hava tarafı modelini derinleştirmek.
+- v3.7.1 release hazır: CHANGELOG, RELEASE_NOTES, CONTINUITY güncel.
+- Tüm bağımlılıklar requirements.txt'de tanımlı.
+- Testler 26/26 başarılı, coverage %93.
 
 ## Sıradaki Teknik İşler
 
-1. Hava debisi hesaplarını ekle.
-2. Fan gücü ve yüz hızı modelini ekle.
-3. Air-side pressure drop tahmini ekle.
-4. Paketleme boyutunu küçült.
-5. Gerekirse gerçek drag-drop etkileşimi için custom Streamlit component değerlendir.
+1. Streamlit login arayüz CSS zenginleştirmesi (glassmorphism vb.).
+2. Admin/User dinamik yönetim arayüzü (kullanıcı ekleme/çıkarma).
+3. Paketleme boyutunu küçült.
+4. Gerekirse gerçek drag-drop etkileşimi için custom Streamlit component değerlendir.
 
 ## Referanslar
 

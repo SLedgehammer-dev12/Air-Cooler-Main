@@ -1,12 +1,18 @@
 # CHANGELOG
 
+## 3.7.1 - 2026-06-09
+
+- **Bağımlılık Yönetimi Düzeltmesi:** `requirements.txt`'ye eksik bağımlılıklar (`ht`, `fluids`, `scipy`) eklendi; `air_cooler_main_app.py`'ye `import ht` eklendi; PyInstaller spec'e hidden imports tanımlandı.
+- **Test Kapsamı Artışı:** 13 yeni test ile coverage %89 → %93'e yükseltildi (geçişli Re, iki-faz koruma, LMTD sınırları, transport properties, auth edge case'leri).
+
 ## 3.7.0 - 2026-06-03
 
 - **Güvenli Giriş Sistemi:** Şifreleri SHA-256 + Tuzlama (Salt) ile saklayan ve doğrulayan giriş altyapısı eklendi.
 - **Rol Tabanlı Arayüz (admin/user):** Gelişmiş boyutlandırma sekmesi (`📐 Gelişmiş Boyutlandırma`) yalnızca `admin` kullanıcısına görünür hale getirildi, `user` yetkileri kısıtlandı.
 - **Gelişmiş Çapraz Akış Sizing ve Rating Modülleri:** Briggs-Young ısı transfer katsayısı, ESDU hava tarafı basınç kaybı ve fan motor gücü hesaplamaları entegre edildi.
-- **Test ve Kapsam Artışı:** Yeni birim testleri ile test coverage oranı %91'e yükseltildi.
+- **Test ve Kapsam Artışı:** Yeni birim testleri ile test coverage oranı %93'e yükseltildi.
 - **macOS standalone Paket Desteği:** PyInstaller yapılandırması çapraz platform (Windows/macOS) uyumlu hale getirilerek macOS standalone paketi başarıyla derlendi.
+- **Bağımlılık Yönetimi:** `requirements.txt`'ye eksik bağımlılıklar (`ht`, `fluids`, `scipy`) eklendi; `air_cooler_main_app.py`'ye `import ht` eklendi; PyInstaller spec'e hidden imports tanımlandı.
 
 ## 3.6.0 - 2026-04-15
 

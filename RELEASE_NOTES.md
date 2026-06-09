@@ -1,6 +1,6 @@
-# Air Cooler Main - v3.7.0 Release Notes
+# Air Cooler Main - v3.7.1 Release Notes
 
-Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu termal yük, boyutlandırma ve değerlendirme hesaplayıcısının **v3.7.0** sürümünü duyurmaktan mutluluk duyarız! Bu güncelleme ile uygulamaya güvenlik, yetkilendirme altyapısı ve gelişmiş mühendislik hesaplama yetenekleri kazandırılmıştır.
+Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu termal yük, boyutlandırma ve değerlendirme hesaplayıcısının **v3.7.1** sürümünü duyurmaktan mutluluk duyarız! Bu güncelleme ile uygulamaya güvenlik, yetkilendirme altyapısı ve gelişmiş mühendislik hesaplama yetenekleri kazandırılmıştır.
 
 ---
 
@@ -18,15 +18,20 @@ Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu 
 *   **Detaylı Boyutlandırma (Sizing):** Briggs-Young dış film ısı iletim katsayısı, Kern-Kraus kanatçık verimliliği ve ESDU hava tarafı basınç düşümü modellemeleri ile gerekli yüzey alanı, fan gücü ve gaz hızı sınır kontrolü.
 *   **Mevcut Durum Değerlendirme (Rating):** Geometrisi belli bir eşanjörün mevcut fan hava debisinde gaz çıkış sıcaklığı, transfer verimi ve basınç kayıpları hesabı.
 
-### 3. macOS Derleme Desteği ve Test Güvencesi
+### 3. Bağımlılık Yönetimi ve Derleme Kalitesi
+*   `requirements.txt`'ye eksik bağımlılıklar (`ht`, `fluids`, `scipy`) eklenerek `ModuleNotFoundError: No module named 'ht'` hatası kalıcı olarak giderildi.
+*   `air_cooler_main_app.py`'ye `import ht` eklenerek transitive import bağımlılığı ortadan kaldırıldı.
+*   PyInstaller spec dosyasına `ht`, `fluids`, `scipy` hidden imports olarak eklendi, çapraz platform build güvencesi artırıldı.
+
+### 4. macOS Derleme Desteği ve Test Güvencesi
 *   PyInstaller spec dosyası çapraz platform uyumlu hale getirilmiştir.
-*   Birim test kapsamı (test coverage) eklenen yeni test senaryoları ile **%91** seviyesine ulaştırılmıştır.
+*   Birim test kapsamı (test coverage) eklenen **13 yeni test senaryosu** ile %89'dan **%93** seviyesine yükseltilmiştir.
 
 ---
 
 ## 📦 Dağıtım Paketleri ve Kurulum Talimatları
 
-### 1. Windows Kurulumu (`AirCooler_Main-v3.7.0-windows-x64.zip`)
+### 1. Windows Kurulumu (`AirCooler_Main-v3.7.1-windows-x64.zip`)
 1.  İndirdiğiniz `.zip` dosyasını bir klasöre çıkartın.
 2.  Klasör içerisindeki `AirCooler_Main.exe` dosyasını çift tıklayarak çalıştırın.
     > [!IMPORTANT]
@@ -36,7 +41,7 @@ Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu 
     > **Windows SmartScreen Uyarısı Çıkarsa:**
     > Lisanslı dijital sertifika imzası içermeyen bağımsız projelerde Windows *"Windows kişisel bilgisayarınızı korudu"* uyarısı verebilir. Bunu aşmak için ekrandaki **Ek Bilgi (More Info)** seçeneğine ve ardından beliren **Yine de Çalıştır (Run Anyway)** butonuna basabilirsiniz.
 
-### 2. macOS Kurulumu (`AirCooler_Main-v3.7.0-macos-arm64.dmg`)
+### 2. macOS Kurulumu (`AirCooler_Main-v3.7.1-macos-arm64.dmg`)
 1.  İndirdiğiniz `.dmg` dosyasına çift tıklayarak mount edin.
 2.  Klasör içerisindeki `AirCooler_Main` çalıştırılabilir dosyasını çalıştırın veya uygulamanızı bilgisayarınıza kopyalayın.
 
@@ -63,5 +68,5 @@ Doğal gaz ve hidrokarbon karışımları için çapraz akışlı gaz soğutucu 
 
 | Dosya Adı | Platform | SHA-256 Değeri |
 | :--- | :--- | :--- |
-| `AirCooler_Main-v3.7.0-macos-arm64.dmg` | macOS (Apple Silicon) | `a085c9fbf7164867609d1ae1a279b3370ef35fdec2944963ea5fac47acbd22ee` |
-| `AirCooler_Main-v3.7.0-windows-x64.zip` | Windows (x64) | *Windows ortamında derlendiğinde hesaplanacaktır* |
+| `AirCooler_Main-v3.7.1-macos-arm64.dmg` | macOS (Apple Silicon) | `a085c9fbf7164867609d1ae1a279b3370ef35fdec2944963ea5fac47acbd22ee` |
+| `AirCooler_Main-v3.7.1-windows-x64.zip` | Windows (x64) | *Windows ortamında derlendiğinde hesaplanacaktır* |

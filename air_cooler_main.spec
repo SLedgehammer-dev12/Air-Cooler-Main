@@ -11,7 +11,7 @@ datas = [
 binaries = []
 hiddenimports = []
 
-for package_name in ("streamlit", "pint", "CoolProp", "plotly", "pandas", "numpy"):
+for package_name in ("streamlit", "pint", "CoolProp", "plotly", "pandas", "numpy", "ht", "fluids", "scipy"):
     datas += copy_metadata(package_name)
     tmp_datas, tmp_binaries, tmp_hidden = collect_all(package_name)
     datas += tmp_datas

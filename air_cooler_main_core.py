@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 APP_DISPLAY_NAME = "Air Cooler Main"
-APP_VERSION = "3.6.0"
+APP_VERSION = "3.7.1"
 DEFAULT_ATM_PRESSURE_PA = 101325.0
 SATURATION_TOLERANCE_K = 0.25
 

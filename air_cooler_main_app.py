@@ -6,6 +6,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import ht
 
 from air_cooler_main_core import (
     APP_DISPLAY_NAME,
