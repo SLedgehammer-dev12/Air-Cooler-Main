@@ -1,5 +1,6 @@
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -707,6 +708,72 @@ class AirCoolerMainTests(unittest.TestCase):
         self.assertGreater(res["gas_Re"], 2100)
         self.assertLess(res["gas_Re"], 4000)
         self.assertGreater(res["Q_kW"], 0.0)
+
+    def test_transport_properties_exception_branch(self):
+        import air_cooler_main_core as core
+        orig_PropsSI = core.CP.PropsSI
+        def mock_PropsSI(key, *args, **kwargs):
+            if key in ("V", "L"):
+                raise ValueError("Mock transport failure")
+            return orig_PropsSI(key, *args, **kwargs)
+        core.CP.PropsSI = mock_PropsSI
+        try:
+            komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+            cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+            props = cooler.get_mixture_transport_properties(1e6, 300.0)
+            self.assertGreater(props["viscosity"], 0)
+            self.assertGreater(props["conductivity"], 0)
+            self.assertGreater(props["mw"], 0)
+        finally:
+            core.CP.PropsSI = orig_PropsSI
+
+    def test_neqsim_has_neqsim_false_fallback(self):
+        """has_neqsim() returns False -> fallback to HEOS"""
+        from CoolProp.CoolProp import AbstractState
+        import air_cooler_main_core as core
+        orig = core.has_neqsim
+        core.has_neqsim = lambda: False
+        try:
+            komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+            cooler = AirFinnedGasCooler(komp, engine="neqsim", eos="GERG-2008", raw_p_unit="bar(a)")
+            state = cooler._init_abstract_state()
+            self.assertEqual(cooler.engine, "neqsim")
+            self.assertIsInstance(state, AbstractState)
+        finally:
+            core.has_neqsim = orig
+
+    def test_neqsim_start_jvm_failure_fallback(self):
+        """neqsim_start_jvm() raises -> fallback chain triggers"""
+        from CoolProp.CoolProp import AbstractState
+        import air_cooler_main_core as core
+        orig = core.neqsim_start_jvm
+        call_count = [0]
+        def failing_start():
+            call_count[0] += 1
+            raise RuntimeError("Mock JVM failure")
+        core.neqsim_start_jvm = failing_start
+        try:
+            komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+            cooler = AirFinnedGasCooler(komp, engine="neqsim", eos="SRK", raw_p_unit="bar(a)")
+            state = cooler._init_abstract_state()
+            self.assertEqual(cooler.engine, "neqsim")
+            self.assertIsInstance(state, AbstractState)
+            self.assertGreater(call_count[0], 1)
+        finally:
+            core.neqsim_start_jvm = orig
+
+    def test_init_abstract_state_neqsim_full_chain(self):
+        import os
+        if not os.environ.get("JAVA_HOME"):
+            raise unittest.SkipTest("JAVA_HOME not set")
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, engine="neqsim", eos="GERG-2008", raw_p_unit="bar(a)")
+        state = cooler._init_abstract_state()
+        state.update(9, 60e5, 373.15)
+        self.assertGreater(state.rhomass(), 0)
+        self.assertGreater(state.keyed_output(72), 0)
+        self.assertEqual(cooler.engine, "neqsim")
+        self.assertEqual(cooler.eos, "GERG-2008")
 
     def test_rating_epsilon_zero_when_minimal_flow(self):
         cooler = AirFinnedGasCooler(self.komp, "PR", "bar(a)")

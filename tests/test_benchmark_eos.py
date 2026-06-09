@@ -437,6 +437,24 @@ def test_performansi_heos_en_yavas():
             assert sure <= heos_sure * 2, f"{etiket} ({sure:.2f}ms) HEOS'tan ({heos_sure:.2f}ms) yavaş değil"
 
 
+def test_performansi_absolute_threshold():
+    """Her EOS'un ortalama çağrı süresi mutlak eşikleri aşmamalı."""
+    komp = SENARYOLAR[0]["kompozisyon"]
+    mol_kesir = {COOLPROP_ALIASES.get(k, k): v["yuzde"] / 100.0 for k, v in komp.items()}
+    sonuc = performans_testi(mol_kesir, EOS_LIST, n_iter=10)
+    for etiket, sure in sonuc.items():
+        if not isinstance(sure, float):
+            continue
+        if "HEOS" in etiket:
+            assert sure < 200, f"HEOS çok yavaş: {sure:.2f}ms (eşik: 200ms)"
+        elif "GERG" in etiket:
+            assert sure < 500, f"GERG-2008 çok yavaş: {sure:.2f}ms (eşik: 500ms)"
+        elif "PR" in etiket and "SRK" not in etiket:
+            assert sure < 20, f"PR çok yavaş: {sure:.2f}ms (eşik: 20ms)"
+        elif "SRK" in etiket:
+            assert sure < 20, f"SRK çok yavaş: {sure:.2f}ms (eşik: 20ms)"
+
+
 def test_gerg2008_heos_dh_match():
     """GERG-2008 entalpi farkı HEOS'a yakın olmalı (Q bazında)."""
     for sen in SENARYOLAR[:1]:
