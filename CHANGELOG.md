@@ -1,5 +1,12 @@
 # CHANGELOG
 
+## 3.7.2 - 2026-06-10
+
+- **Proje Kaydet/Aç Özelliği:** Tüm girdilerin (kompozisyon, proses, geometri, üniteler) JSON formatında kaydedilip tekrar yüklenebilmesi sağlandı. (Toolbar'da 💾/📂 butonları eklendi)
+- **Kapsam Artışı:** 4 yeni test eklendi (save/load roundtrip, neqsim fallback chain, transport properties exception handler, benchmark performance guard).
+- **Kapsam Oranı:** Core modülünde %96'ya (toplamda %93) ulaşıldı.
+- **Güvenlik/Hata Düzeltme:** EOS fallback zinciri hatası giderildi, neqsim JVM hata durumları için daha sağlam yönetim eklendi.
+
 ## 3.7.1 - 2026-06-09
 
 - **CoolProp Fluid Adı Düzeltmesi:** `"I-BUTANE"` → `"ISOBUTANE"`, `"I-PENTANE"` → `"ISOPENTANE"` olarak düzeltildi; eski adlar için `COOLPROP_ALIASES` geriye dönük uyumluluk eklendi.

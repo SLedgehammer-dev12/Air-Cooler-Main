@@ -18,10 +18,10 @@ jobs:
         include:
           - os: windows-latest
             artifact_name: AirCooler_Main.exe
-            asset_name: AirCooler_Main-v3.7.1-windows-x64.zip
+            asset_name: AirCooler_Main-v3.7.2-windows-x64.zip
           - os: macos-latest
             artifact_name: AirCooler_Main
-            asset_name: AirCooler_Main-v3.7.1-macos-arm64.dmg
+            asset_name: AirCooler_Main-v3.7.2-macos-arm64.dmg
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

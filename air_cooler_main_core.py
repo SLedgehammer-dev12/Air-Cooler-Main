@@ -22,7 +22,7 @@ from air_cooler_neqsim import (
 )
 
 APP_DISPLAY_NAME = "Air Cooler Main"
-APP_VERSION = "3.7.1"
+APP_VERSION = "3.7.2"
 DEFAULT_ATM_PRESSURE_PA = 101325.0
 SATURATION_TOLERANCE_K = 0.25
 
