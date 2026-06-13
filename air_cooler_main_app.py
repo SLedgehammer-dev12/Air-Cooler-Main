@@ -517,10 +517,40 @@ def draw_login_page():
                     st.session_state.authenticated = True
                     st.session_state.username = username_input.strip()
                     st.session_state.role = role
-                    st.success("Giriş başarılı! Yönlendiriliyorsunuz...")
-                    st.rerun()
+                    if is_default_password(password_input):
+                        st.session_state.default_password = True
+                        st.warning("⚠️ Varsayılan şifre ile giriş yaptınız. Güvenlik için şifrenizi değiştirmeniz önerilir.")
+                        st.rerun()
+                    else:
+                        st.session_state.default_password = False
+                        st.success("Giriş başarılı! Yönlendiriliyorsunuz...")
+                        st.rerun()
                 else:
                     st.error("Hatalı kullanıcı adı veya şifre!")
+                    
+            if st.session_state.get("default_password") and st.session_state.get("authenticated"):
+                with st.expander("🔑 Şifre Değiştir", expanded=True):
+                    st.warning("Varsayılan şifre kullanıyorsunuz. Lütfen şifrenizi değiştirin.")
+                    with st.form("password_change_form"):
+                        cur_pass = st.text_input("Mevcut Şifre", type="password", key="cur_pass_input")
+                        new_pass = st.text_input("Yeni Şifre (en az 6 karakter)", type="password", key="new_pass_input")
+                        new_pass2 = st.text_input("Yeni Şifre (Tekrar)", type="password", key="new_pass2_input")
+                        if st.form_submit_button("Şifreyi Değiştir", type="primary"):
+                            if not new_pass or len(new_pass) < 6:
+                                st.error("Şifre en az 6 karakter olmalıdır.")
+                            elif new_pass != new_pass2:
+                                st.error("Şifreler eşleşmiyor.")
+                            else:
+                                ok, msg = change_password(
+                                    st.session_state.username, cur_pass,
+                                    new_pass, users_db, USERS_FILE
+                                )
+                                if ok:
+                                    st.session_state.default_password = False
+                                    st.success(f"✅ {msg}")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ {msg}")
 
 
 def draw_advanced_design():
@@ -732,10 +762,12 @@ def draw_advanced_design():
                 fouling_in = st.number_input("Boru İçi Kirlenme (m²K/W)", min_value=0.0, value=0.000176, format="%.6f", help="TEMA standardı doğalgaz kirlenme katsayısı: 0.000176", key="adv_fouling_in")
                 fouling_out = st.number_input("Hava Kirlenme Katsayısı (m²K/W)", min_value=0.0, value=0.000088, format="%.6f", key="adv_fouling_out")
 
-            g_col9, g_col10, g_col11 = st.columns(3)
+            g_col9, g_col10, g_col11, g_col12 = st.columns(4)
             with g_col9:
                 fan_eff_raw = st.number_input("Fan Toplam Verimi (%)", min_value=10.0, max_value=100.0, value=65.0, key="adv_fan_eff")
                 fan_eff = fan_eff_raw / 100.0
+                fan_diameter = st.number_input("Fan Çapı (m)", min_value=0.5, max_value=10.0, value=2.44, help="API 661 standardına göre fan çapı", key="adv_fan_dia")
+                n_fans = st.number_input("Fan Sayısı", min_value=1, max_value=20, value=1, key="adv_n_fans")
             with g_col10:
                 default_air_in_s = 25.0 if adv_t_unit != "K" else 298.15
                 air_in_s = st.number_input("Tasarım Hava Giriş Sıcaklığı", min_value=min_temp, value=default_air_in_s, key="air_in_s")
@@ -771,7 +803,9 @@ def draw_advanced_design():
                     "fin_k": k_fin,
                     "fouling_in": fouling_in,
                     "fouling_out": fouling_out,
-                    "fan_efficiency": fan_eff
+                    "fan_efficiency": fan_eff,
+                    "fan_diameter": float(fan_diameter),
+                    "n_fans": int(n_fans)
                 }
                 
                 _engine_b, _eos_v = resolve_engine_eos(st.session_state.adv_engine, st.session_state.adv_eos_label)
@@ -826,7 +860,11 @@ def draw_advanced_design():
                         st.markdown("**💨 Hava Tarafı & Fan Güç Hesapları**")
                         st.write(f"**Gerekli Hava Debisi:** {res['m_dot_air_kg_s']:.2f} kg/s ({res['V_air_m3_h']:.2f} m³/h)")
                         st.write(f"**Hava Basınç Kaybı (ESDU):** {res['dP_air_Pa']:.2f} Pa")
-                        st.write(f"**Tahmini Fan Şaft Gücü:** {res['fan_power_kW']:.2f} kW")
+                        st.write(f"**Tahmini Fan Şaft Gücü (API 661):** {res['fan_power_kW']:.2f} kW")
+                        st.write(f"**Dinamik Basınç Kaybı (hız basıncı):** {res['dP_dynamic_Pa']:.1f} Pa")
+                        st.write(f"**Plenum Kaybı (tahmini %10):** {res['dP_plenum_Pa']:.1f} Pa")
+                        st.write(f"**Toplam Fan Basıncı:** {res['total_dP_fan_Pa']:.1f} Pa")
+                        st.write(f"**Fan Çıkış Hızı:** {res['v_fan_m_s']:.2f} m/s")
                         st.write(f"**Boru İçi Gaz Akış Hızı:** {res['gas_velocity_m_s']:.2f} m/s")
                         st.write(f"**Boru İçi Gaz Reynolds:** {res['gas_Re']:.0f}")
                         st.write(f"**Gaz Tarafı Basınç Düşümü (Friction):** {res['gas_dP_bar']:.4f} bar")
@@ -838,6 +876,29 @@ def draw_advanced_design():
                 else:
                     st.success("✅ **Hız Sınırları Uyumlu:** Gaz hızları API 661 erozyon ve kirlenme limitleri içerisinde.")
                     
+                with st.expander("📋 API 661 Uyum Denetimi", expanded=False):
+                    tube_od_mm = float(tube_od)
+                    if tube_od_mm < 25.4:
+                        st.warning(f"⚠️ **Boru Dış Çapı:** {tube_od_mm:.1f} mm < 25.4 mm. API 661 rafineri servisi için minimum 1 inç (25.4 mm) önerir.")
+                    else:
+                        st.info(f"✅ **Boru Dış Çapı:** {tube_od_mm:.1f} mm ≥ 25.4 mm. API 661 uyumlu.")
+                    
+                    tube_thick_mm = float(tube_thick)
+                    min_wall = 2.11 if "Karbon" in tube_mat else 1.65
+                    if tube_thick_mm < min_wall:
+                        st.warning(f"⚠️ **Boru Duvar Kalınlığı:** {tube_thick_mm:.2f} mm < {min_wall:.2f} mm. API 661 minimum {min_wall:.2f} mm önerir ({'CS 14 BWG' if min_wall > 2 else 'Alaşım'} için).")
+                    else:
+                        st.info(f"✅ **Boru Duvar Kalınlığı:** {tube_thick_mm:.2f} mm ≥ {min_wall:.2f} mm. API 661 uyumlu.")
+                    
+                    v_fan = res.get('v_fan_m_s', 0.0)
+                    if v_fan > 0:
+                        if v_fan > 61.0:
+                            st.warning(f"⚠️ **Fan Kanat Uç Hızı:** {v_fan:.1f} m/s > 61 m/s. API 661 maksimum 61 m/s (standart) / 50 m/s (düşük gürültü) önerir.")
+                        elif v_fan > 50.0:
+                            st.warning(f"⚠️ **Fan Kanat Uç Hızı:** {v_fan:.1f} m/s > 50 m/s. Düşük gürültü uygulamaları için maksimum 50 m/s önerilir.")
+                        else:
+                            st.info(f"✅ **Fan Kanat Uç Hızı:** {v_fan:.1f} m/s ≤ 50 m/s. API 661 uyumlu.")
+            
             except Exception as e:
                 st.error(f"Hesaplama hatası: {e}")
                 log_error("Detaylı boyutlandırma hesaplama hatası.", e)
@@ -1011,6 +1072,7 @@ def serialize_inputs(state=None):
         "fin_height": 15.9, "fin_thick": 0.4, "fin_fpi": 10.0,
         "tube_mat": "Karbon Çelik (50 W/mK)", "fin_mat": "Alüminyum (205 W/mK)",
         "fouling_in": 0.000176, "fouling_out": 0.000088, "fan_eff": 65.0,
+        "fan_dia": 2.44, "n_fans": 1,
     }
     geom = {}
     for gk, gdefault in geom_keys.items():
@@ -1089,7 +1151,8 @@ def load_project_file(data, state=None):
             "fin_height": "adv_fin_height", "fin_thick": "adv_fin_thick",
             "fin_fpi": "adv_fin_fpi", "tube_mat": "adv_tube_mat",
             "fin_mat": "adv_fin_mat", "fouling_in": "adv_fouling_in",
-            "fouling_out": "adv_fouling_out", "fan_eff": "adv_fan_eff"}
+            "fouling_out": "adv_fouling_out", "fan_eff": "adv_fan_eff",
+            "fan_dia": "adv_fan_dia", "n_fans": "adv_n_fans"}
     for gk, sk in gmap.items():
         v = at.get("geometry", {}).get(gk)
         if v is not None:

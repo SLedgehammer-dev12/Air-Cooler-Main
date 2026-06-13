@@ -11,24 +11,25 @@ datas = [
 ]
 binaries = []
 hiddenimports = [
-    "multiprocessing",
-    "threading",
     "streamlit.web.cli",
     "streamlit.runtime.scriptrunner",
+    "pint",
+    "CoolProp",
+    "plotly",
+    "pandas",
+    "numpy",
+    "ht",
+    "fluids",
+    "scipy",
+    "multiprocessing",
 ]
 
 for package_name in ("streamlit", "pint", "CoolProp", "plotly", "pandas", "numpy", "ht", "fluids", "scipy"):
-    try:
-        datas += copy_metadata(package_name)
-    except Exception:
-        pass
-    try:
-        tmp_datas, tmp_binaries, tmp_hidden = collect_all(package_name)
-        datas += tmp_datas
-        binaries += tmp_binaries
-        hiddenimports += tmp_hidden
-    except Exception:
-        pass
+    datas += copy_metadata(package_name)
+    tmp_datas, tmp_binaries, tmp_hidden = collect_all(package_name)
+    datas += tmp_datas
+    binaries += tmp_binaries
+    hiddenimports += tmp_hidden
 
 a = Analysis(
     ["run_air_cooler_main.py"],
@@ -58,7 +59,7 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch="arm64",
     codesign_identity=None,
     entitlements_file=None,
 )
@@ -71,4 +72,20 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name="AirCooler_Main",
+)
+
+app = BUNDLE(
+    coll,
+    name="AirCooler_Main.app",
+    icon=None,
+    bundle_identifier="com.aircooler.main",
+    info_plist={
+        "CFBundleName": "Air Cooler Main",
+        "CFBundleDisplayName": "Air Cooler Main",
+        "CFBundleVersion": "4.0.0",
+        "CFBundleShortVersionString": "4.0.0",
+        "CFBundleExecutable": "AirCooler_Main",
+        "NSHighResolutionCapable": True,
+        "NSRequiresAquaSystemAppearance": False,
+    },
 )

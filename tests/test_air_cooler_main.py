@@ -746,6 +746,9 @@ class AirCoolerMainTests(unittest.TestCase):
 
     def test_neqsim_start_jvm_failure_fallback(self):
         """neqsim_start_jvm() raises -> fallback chain triggers"""
+        from air_cooler_neqsim import has_neqsim
+        if not has_neqsim():
+            raise unittest.SkipTest("neqsim not available")
         from CoolProp.CoolProp import AbstractState
         import air_cooler_main_core as core
         orig = core.neqsim_start_jvm

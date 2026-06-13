@@ -254,9 +254,6 @@ def assess_eos_risk(eos_name, kompozisyon, P_bar):
 
     has_h2o = any("WATER" in k.upper() for k in kompozisyon)
     has_co2 = any("CARBONDIOXIDE" in k.upper() or k.upper() == "CO2" for k in kompozisyon)
-    c3plus_pct = sum(v.get("yuzde", 0) for k, v in kompozisyon.items()
-                     if k in ("PROPANE", "N-BUTANE", "ISOBUTANE", "N-PENTANE",
-                              "ISOPENTANE", "CYCLOPENTANE", "HEXANE", "HEPTANE", "OCTANE"))
 
     warnings = []
     for condition, msg in rules.get("risk_if", []):

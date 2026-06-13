@@ -4,59 +4,129 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. v4.0.0)'
+        required: true
+        default: 'v4.0.0'
 
 permissions:
   contents: write
 
-jobs:
-  build:
-    name: Build Packages
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [windows-latest, macos-latest]
-        include:
-          - os: windows-latest
-            artifact_name: AirCooler_Main.exe
-            asset_name: AirCooler_Main-v3.7.2-windows-x64.zip
-          - os: macos-latest
-            artifact_name: AirCooler_Main
-            asset_name: AirCooler_Main-v3.7.2-macos-arm64.dmg
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+env:
+  APP_VERSION: 4.0.0
 
-      - name: Set up Python
+jobs:
+  test:
+    name: Run Tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller fluids ht scipy Pint pandas numpy plotly
+          pip install pyinstaller
+      - name: Run regression tests
+        run: |
+          pip install pytest pytest-cov
+          python -m pytest tests/test_air_cooler_main.py -v
 
+  build-windows:
+    name: Build Windows Package
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
       - name: Build with PyInstaller
         run: |
           pyinstaller --clean --noconfirm air_cooler_main.spec
-
-      - name: Compress Windows Build
-        if: matrix.os == 'windows-latest'
+      - name: Compress to ZIP
         run: |
-          powershell Compress-Archive -Path dist/AirCooler_Main/* -DestinationPath dist/${{ matrix.asset_name }}
+          powershell Compress-Archive -Path dist/AirCooler_Main/* -DestinationPath dist/AirCooler_Main-v4.0.0-windows-x64.zip
+      - name: Upload asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/AirCooler_Main-v4.0.0-windows-x64.zip
 
-      - name: Create macOS DMG
-        if: matrix.os == 'macos-latest'
+  build-macos:
+    name: Build macOS DMG
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
         run: |
-          hdiutil create -volname "Air Cooler Main" -srcfolder dist/AirCooler_Main -ov -format UDZO dist/${{ matrix.asset_name }}
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Build with PyInstaller (.app bundle)
+        run: |
+          pyinstaller --clean --noconfirm air_cooler_main_macos.spec
+      - name: Create .dmg disk image
+        run: |
+          APP_VERSION="4.0.0"
+          DMG_NAME="AirCooler_Main-v${APP_VERSION}-macos-arm64.dmg"
+          STAGING_DIR="dist/_dmg_staging"
+          mkdir -p "$STAGING_DIR"
+          cp -R dist/AirCooler_Main.app "$STAGING_DIR/"
+          ln -s /Applications "$STAGING_DIR/Applications"
+          hdiutil create -volname "Air Cooler Main v${APP_VERSION}" \
+            -srcfolder "$STAGING_DIR" -ov -format UDZO "dist/${DMG_NAME}"
+          rm -rf "$STAGING_DIR"
+      - name: Upload asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/AirCooler_Main-v4.0.0-macos-arm64.dmg
 
-      - name: Upload Release Assets
+  release:
+    name: Create GitHub Release
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          sha256sum *.zip *.dmg > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           body_path: RELEASE_NOTES.md
           files: |
             dist/*.zip
             dist/*.dmg
+            dist/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

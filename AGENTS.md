@@ -1,7 +1,7 @@
 # Air-Cooler-Main — Agent Memory
 
 ## Project
-Streamlit-based air-cooled heat exchanger sizing/rating tool. Python 3.13, CoolProp + ht + fluids + neqsim (Java bridge via JPype).
+Streamlit-based air-cooled heat exchanger sizing/rating tool. Python 3.13, CoolProp + ht + fluids + neqsim (Java bridge via JPype). Current version: **4.0.0**.
 
 ## Architecture
 - `air_cooler_main_app.py` — Streamlit UI (login, sizing/rating tabs, admin panel)
@@ -49,6 +49,27 @@ Two-level selection: **Engine** (CoolProp / neqsim) → **EOS** filtered by engi
 1. **KeyError** on first visit to "Gelişmiş Hesaplama" tab — `st.session_state.adv_eos_label` accessed before initialization
 2. **Dead code** `eos_warning_accepted` — was set but never read; now controls expander collapse + button visibility
 3. **Missing risk warnings** in "Hızlı Hesaplama" tab — now has full risk assessment + Geç/Devam Et buttons
+
+## Known Bugs Fixed (2026-06-13 — v4.0.0)
+1. **CRITICAL: Pitch solver inconsistency** — `AirCooledExchanger` called with `pitch`/`angle` instead of `pitch_normal`/`pitch_parallel`. User's 63.5 mm pitch_normal was halved to 31.75 mm by `pitch_angle_solver(angle=30)`, causing physical tube overlap. Fixed via `resolve_pitches()` + direct parameter passing.
+2. **Two-phase crash** — `get_mixture_transport_properties(P_avg, T_avg)` crashed for condensing cases where T_avg falls in two-phase envelope. Fixed with saturation check + quality-weighted property blending.
+3. **Missing condensation h_inside** — Shah correlation now used for condensing cases instead of single-phase Dittus-Boelter.
+4. **Missing two-phase dP** — Lockhart-Martinelli multiplier now applied for condensing cases.
+5. **Dead code** — `c3plus_pct` in `assess_eos_risk()` was computed but never used. Removed.
+
+## v4.0.0 New Features
+- **Gnielinski correlation** replaces Dittus-Boelter for tube-side Nusselt (Re>2300)
+- **API 661 fan power** includes dynamic pressure (½ρv²) + plenum losses (10%)
+- **API 661 compliance panel** checks tube OD, wall thickness, fan tip speed
+- **Password change flow** — default password detection + change form on login
+- **Fan geometry inputs** — fan diameter (m) and fan count for accurate fan power
+- **Backward compatible** — all 52 existing tests pass; `fan_diameter`/`n_fans` default to 2.44m/1
+
+## Build & Release
+- macOS: `air_cooler_main_macos.spec` → `.app` bundle → `.dmg` (ARM64)
+- Windows: `air_cooler_main.spec` → `_internal` folder → `.zip` (x64)
+- Entry point: `run_air_cooler_main.py` (Streamlit launcher with auto-port + browser open)
+- Scripts: `build/build_macos.sh`, `build/build_windows.bat`
 
 ## Test Commands
 ```bash

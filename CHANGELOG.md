@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 4.0.0 - 2026-06-13
+
+### 🔴 Kritik Hata Düzeltmeleri
+- **Pitch Çözücü Hatası (Fiziksel Çakışma):** `AirCooledExchanger`'a `pitch`/`angle` yerine doğrudan `pitch_normal`/`pitch_parallel` gönderiliyor. 63.5 mm pitch + 30° üçgen yerleşimde tüplerin fiziksel çakışması giderildi. (`resolve_pitches()` fonksiyonu eklendi.)
+- **İki Fazlı Akış Modellemesi:** Shah yoğuşma korelasyonu (yatay borular) ve Lockhart-Martinelli iki fazlı basınç düşümü entegre edildi. Yoğuşma bölgesinde `get_mixture_transport_properties` hatası giderildi, kalite ağırlıklı transport özellikleri hesaplanıyor.
+
+### 🟡 Mühendislik İyileştirmeleri
+- **Gnielinski Korelasyonu:** Boru içi türbülanslı ısı transferinde Dittus-Boelter yerine Gnielinski kullanılıyor (Re>2300). Geçiş bölgesinde lineer enterpolasyon.
+- **API 661 Fan Gücü:** Dinamik basınç (½ρv²) ve plenum kaybı (%10) fan gücü hesabına eklendi. Fan çapı ve adedi kullanıcı tanımlı hale getirildi (varsayılan: 2.44 m, 1 adet).
+
+### 🟢 API 661 Uyum Denetimleri
+- Sizing sonuçlarında API 661 paneli: Boru OD≥25.4 mm, et kalınlığı≥CS:2.11/Alaşım:1.65 mm, fan uç hızı≤61/50 m/s kontrolleri eklendi.
+
+### 🟢 Kod Kalitesi ve Güvenlik
+- `air_cooler_neqsim.py`: Ölü kod `c3plus_pct` değişkeni temizlendi.
+- Varsayılan şifre koruması: Girişte varsayılan şifre tespiti ve şifre değiştirme formu eklendi.
+- Tüm mevcut 52 test başarıyla geçiyor (1 skipped: neqsim JVM).
+
 ## 3.7.2 - 2026-06-10
 
 - **Proje Kaydet/Aç Özelliği:** Tüm girdilerin (kompozisyon, proses, geometri, üniteler) JSON formatında kaydedilip tekrar yüklenebilmesi sağlandı. (Toolbar'da 💾/📂 butonları eklendi)
