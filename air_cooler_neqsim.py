@@ -31,6 +31,7 @@ def _try_import_neqsim():
         # Try known locations
         for candidate in [
             "/tmp/java21_arm/jdk-21.0.11+10/Contents/Home",
+            "/tmp/java21_arm/jdk-21.0.12.1+1/Contents/Home",
             "/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home",
             "/Library/Java/JavaVirtualMachines/jdk-21.0.2.jdk/Contents/Home",
             "/Library/Java/JavaVirtualMachines/jdk-11.0.22.jdk/Contents/Home",

@@ -104,8 +104,11 @@ Two-level selection: **Engine** (CoolProp / neqsim) → **EOS** filtered by engi
 
 ## Test Commands
 ```bash
-# All tests (neqsim + regression)
-export JAVA_HOME=/tmp/java21_arm/jdk-21.0.11+10/Contents/Home
+# All tests (neqsim + regression) — JAVA_HOME opsiyonel (otomatik bulunur)
+# Java yoksa: macOS'a Temurin JDK kurun veya:
+#   curl -L -o /tmp/temurin21.tar.gz "https://api.adoptium.net/v3/binary/latest/21/ga/mac/aarch64/jdk/hotspot/normal/eclipse"
+#   mkdir -p /tmp/java21_arm && tar -xzf /tmp/temurin21.tar.gz -C /tmp/java21_arm
+export JAVA_HOME=/tmp/java21_arm/jdk-21.0.12.1+1/Contents/Home   # opsiyonel
 python3 -m pytest tests/ -v
 
 # Regression only
@@ -125,6 +128,6 @@ streamlit run air_cooler_main_app.py
 ```
 
 ## Requirements
-- Java JDK 11+ (tested with `/tmp/java21_arm/jdk-21.0.11+10/Contents/Home`)
+- Java JDK 11+ (tested with Temurin-21; otomatik tespit: `/tmp/java21_arm/*/Contents/Home`)
 - neqsim 3.13.0 via `JPype1` + Java `.jar`
 - CoolProp, ht, fluids, pandas, plotly, streamlit
