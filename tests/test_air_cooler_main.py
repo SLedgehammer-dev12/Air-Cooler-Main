@@ -796,6 +796,473 @@ class AirCoolerMainTests(unittest.TestCase):
         self.assertGreaterEqual(res["effectiveness"], 0.0)
 
 
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class TransportPropertyTests(unittest.TestCase):
+    def test_wilke_single_component_returns_pure_value(self):
+        from air_cooler_main_core import wilke_mixture_viscosity
+        mu = wilke_mixture_viscosity([1.0], [1.1e-5], [16.04])
+        self.assertAlmostEqual(mu, 1.1e-5, places=10)
+
+    def test_wilke_empty_returns_fallback(self):
+        from air_cooler_main_core import wilke_mixture_viscosity
+        self.assertGreater(wilke_mixture_viscosity([], [], []), 0.0)
+
+    def test_wilke_binary_diagonal_phi_is_one(self):
+        from air_cooler_main_core import _wilke_phi
+        self.assertAlmostEqual(_wilke_phi(1e-5, 1e-5, 16.0, 16.0), 1.0, places=9)
+
+    def test_wilke_binary_is_between_pure_values(self):
+        from air_cooler_main_core import wilke_mixture_viscosity
+        mu_mix = wilke_mixture_viscosity([0.5, 0.5], [1.1e-5, 9.0e-6], [16.04, 30.07])
+        self.assertGreater(mu_mix, min(1.1e-5, 9.0e-6))
+        self.assertLess(mu_mix, max(1.1e-5, 9.0e-6))
+
+    def test_mason_saxena_binary_is_between_pure_values(self):
+        from air_cooler_main_core import mason_saxena_mixture_conductivity
+        k_mix = mason_saxena_mixture_conductivity([0.5, 0.5], [0.035, 0.021], [16.04, 30.07])
+        self.assertGreater(k_mix, min(0.035, 0.021))
+        self.assertLess(k_mix, max(0.035, 0.021))
+
+    def test_mason_saxena_single_component_returns_pure_value(self):
+        from air_cooler_main_core import mason_saxena_mixture_conductivity
+        k = mason_saxena_mixture_conductivity([1.0], [0.034], [16.04])
+        self.assertAlmostEqual(k, 0.034, places=10)
+
+    def test_mixture_viscosity_not_linear_average(self):
+        komp = {
+            "METHANE": {"yuzde": 50.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 50.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        props = cooler.get_mixture_transport_properties(60e5, 350.0)
+        linear_avg = 0.5 * props["viscosity"]
+        self.assertGreater(props["viscosity"], 0.0)
+        self.assertGreater(props["conductivity"], 0.0)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class FanTipSpeedTests(unittest.TestCase):
+    def test_fan_tip_speed_formula(self):
+        from air_cooler_main_core import fan_tip_speed
+        self.assertAlmostEqual(fan_tip_speed(2.44, 350), 3.14159 * 2.44 * 350 / 60, places=4)
+
+    def test_fan_tip_speed_zero_on_invalid(self):
+        from air_cooler_main_core import fan_tip_speed
+        self.assertEqual(fan_tip_speed(0.0, 350), 0.0)
+        self.assertEqual(fan_tip_speed(2.44, 0), 0.0)
+
+    def test_fan_sound_power_positive(self):
+        from air_cooler_main_core import estimate_fan_sound_power_level
+        lw = estimate_fan_sound_power_level(100.0, 150.0)
+        self.assertGreater(lw, 0.0)
+
+    def test_fan_sound_power_zero_on_invalid(self):
+        from air_cooler_main_core import estimate_fan_sound_power_level
+        self.assertEqual(estimate_fan_sound_power_level(0.0, 150.0), 0.0)
+        self.assertEqual(estimate_fan_sound_power_level(100.0, 0.0), 0.0)
+
+    def test_detailed_design_returns_tip_speed_and_sound(self):
+        komp = {
+            "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+            "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        geom = {
+            "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+            "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+            "fin_height": 0.0159, "fin_thickness": 0.0004,
+            "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+            "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+            "fan_efficiency": 0.65, "fan_diameter": 2.44, "n_fans": 1, "fan_rpm": 350,
+        }
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), geom
+        )
+        self.assertIn("fan_tip_speed_m_s", res)
+        self.assertGreater(res["fan_tip_speed_m_s"], 0.0)
+        self.assertIn("fan_sound_power_dB", res)
+        self.assertGreaterEqual(res["fan_sound_power_dB"], 0.0)
+        self.assertIn("fan_rpm", res)
+        self.assertEqual(res["fan_rpm"], 350)
+
+    def test_fan_sound_power_realistic_flow_positive(self):
+        from air_cooler_main_core import estimate_fan_sound_power_level
+        lw = estimate_fan_sound_power_level(100.0, 200.0)
+        self.assertGreater(lw, 80.0)
+        self.assertLess(lw, 130.0)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class FinTypeLimitTests(unittest.TestCase):
+    def test_known_fin_type_limits(self):
+        from air_cooler_main_core import fin_type_temperature_limit_C
+        self.assertEqual(fin_type_temperature_limit_C("L-Foot / Double L"), 130.0)
+        self.assertEqual(fin_type_temperature_limit_C("KL (Knurled L)"), 250.0)
+        self.assertEqual(fin_type_temperature_limit_C("Embedded (G-Fin)"), 400.0)
+        self.assertEqual(fin_type_temperature_limit_C("Extruded"), 350.0)
+
+    def test_unknown_fin_type_returns_none(self):
+        from air_cooler_main_core import fin_type_temperature_limit_C
+        self.assertIsNone(fin_type_temperature_limit_C("Bilinmeyen Tip"))
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class VoidFractionTests(unittest.TestCase):
+    def test_homogeneous_void_fraction_bounds(self):
+        from air_cooler_main_core import homogeneous_void_fraction
+        self.assertEqual(homogeneous_void_fraction(0.0, 10.0, 600.0), 0.0)
+        self.assertEqual(homogeneous_void_fraction(1.0, 10.0, 600.0), 1.0)
+        a = homogeneous_void_fraction(0.5, 10.0, 600.0)
+        self.assertTrue(0.0 < a < 1.0)
+
+    def test_rouhani_axelsson_between_homogeneous_bounds(self):
+        from air_cooler_main_core import rouhani_axelsson_void_fraction, homogeneous_void_fraction
+        rho_v, rho_l, x, G, sigma = 10.0, 600.0, 0.5, 150.0, 0.02
+        a_ra = rouhani_axelsson_void_fraction(x, rho_v, rho_l, G, sigma)
+        a_h = homogeneous_void_fraction(x, rho_v, rho_l)
+        self.assertTrue(0.0 < a_ra < 1.0)
+        self.assertLess(a_ra, a_h)
+
+    def test_rouhani_axelsson_no_sigma_falls_back_homogeneous(self):
+        from air_cooler_main_core import rouhani_axelsson_void_fraction, homogeneous_void_fraction
+        rho_v, rho_l, x, G = 10.0, 600.0, 0.5, 150.0
+        self.assertAlmostEqual(
+            rouhani_axelsson_void_fraction(x, rho_v, rho_l, G, None),
+            homogeneous_void_fraction(x, rho_v, rho_l),
+        )
+
+    def test_two_phase_density_between_phase_densities(self):
+        from air_cooler_main_core import two_phase_density
+        rho_v, rho_l, x, G, sigma = 10.0, 600.0, 0.5, 150.0, 0.02
+        rho_tp = two_phase_density(x, rho_v, rho_l, G, sigma)
+        self.assertGreater(rho_tp, rho_v)
+        self.assertLess(rho_tp, rho_l)
+
+    def test_two_phase_density_homogeneous_matches_formula(self):
+        from air_cooler_main_core import two_phase_density
+        rho_v, rho_l, x, G = 10.0, 600.0, 0.5, 150.0
+        rho_tp = two_phase_density(x, rho_v, rho_l, G, None)
+        expected = 1.0 / (x / rho_v + (1 - x) / rho_l)
+        self.assertAlmostEqual(rho_tp, expected, places=9)
+
+    def test_mixture_surface_tension_positive(self):
+        komp = {
+            "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+            "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        sigma = cooler._mixture_surface_tension(250.0)
+        self.assertIsNotNone(sigma)
+        self.assertGreater(sigma, 0.0)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class TubeWallThicknessTests(unittest.TestCase):
+    def test_required_thickness_matches_appendix_1_1(self):
+        from air_cooler_main_core import required_tube_wall_thickness
+        P, Do, S, E = 60e5, 0.0254, 110e6, 1.0
+        t = required_tube_wall_thickness(P, Do, S, E)
+        expected = P * Do / (2.0 * S * E + 0.8 * P)
+        self.assertAlmostEqual(t, expected, places=12)
+
+    def test_required_thickness_positive(self):
+        from air_cooler_main_core import required_tube_wall_thickness
+        t = required_tube_wall_thickness(60e5, 0.0254, 110e6, 1.0)
+        self.assertGreater(t, 0.0)
+        self.assertLess(t, 0.01)
+
+    def test_required_thickness_zero_on_invalid(self):
+        from air_cooler_main_core import required_tube_wall_thickness
+        self.assertEqual(required_tube_wall_thickness(60e5, 0.0, 110e6, 1.0), 0.0)
+        self.assertEqual(required_tube_wall_thickness(60e5, 0.0254, 0.0, 1.0), 0.0)
+
+    def test_corrosion_allowance_added(self):
+        from air_cooler_main_core import required_tube_wall_with_ca, required_tube_wall_thickness
+        P, Do, S = 60e5, 0.0254, 110e6
+        base = required_tube_wall_thickness(P, Do, S)
+        with_ca = required_tube_wall_with_ca(P, Do, S, 1.0, 0.0016)
+        self.assertAlmostEqual(with_ca, base + 0.0016, places=12)
+
+    def test_material_grades_defined(self):
+        from air_cooler_main_core import TUBE_MATERIAL_GRADES
+        self.assertIn("Karbon Çelik (SA-179/A214)", TUBE_MATERIAL_GRADES)
+        self.assertIn("Paslanmaz Çelik (SA-213 316L)", TUBE_MATERIAL_GRADES)
+        self.assertIn("Duplex (SA-789 2205)", TUBE_MATERIAL_GRADES)
+        for g in TUBE_MATERIAL_GRADES.values():
+            self.assertGreater(g["S_MPa"], 0.0)
+            self.assertGreater(g["E"], 0.0)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class SegmentalTests(unittest.TestCase):
+    GEOM = {
+        "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+        "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+        "fin_height": 0.0159, "fin_thickness": 0.0004,
+        "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+        "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+        "fan_efficiency": 0.65, "fan_diameter": 2.44, "n_fans": 1, "fan_rpm": 350,
+    }
+
+    def test_silver_bell_ghaly_reduces_to_pure_component(self):
+        from air_cooler_main_core import silver_bell_ghaly_h
+        h_c, x, cp_v, h_v = 1500.0, 0.5, 2000.0, 100.0
+        self.assertAlmostEqual(silver_bell_ghaly_h(h_c, x, cp_v, h_v, 0.0), h_c, places=9)
+
+    def test_silver_bell_ghaly_reduces_h(self):
+        from air_cooler_main_core import silver_bell_ghaly_h
+        h_c, x, cp_v, h_v, dT_dH = 1500.0, 0.5, 2000.0, 100.0, 0.001
+        h_eff = silver_bell_ghaly_h(h_c, x, cp_v, h_v, dT_dH)
+        self.assertLess(h_eff, h_c)
+
+    def test_cooling_profile_gas_only(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        prof = cooler._build_cooling_profile(5e5, 300.0, 200.0)
+        self.assertGreater(len(prof), 3)
+        Hs = [p[1] for p in prof]
+        self.assertEqual(Hs, sorted(Hs))
+
+    def test_cooling_profile_condensing(self):
+        komp = {
+            "PROPANE": {"yuzde": 70.0, "tip": "Molar"},
+            "N-BUTANE": {"yuzde": 30.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        prof = cooler._build_cooling_profile(9.75e5, 333.15, 293.15)
+        self.assertGreater(len(prof), 3)
+        Hs = [p[1] for p in prof]
+        self.assertEqual(Hs, sorted(Hs))
+
+    def test_segmental_applied_gas_only(self):
+        komp = {
+            "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+            "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), self.GEOM
+        )
+        self.assertTrue(res["segmental_applied"])
+        self.assertGreater(len(res["segments"]), 0)
+        self.assertGreater(res["required_area_m2"], 0.0)
+
+    def test_segmental_condensing_has_two_phase_segments(self):
+        komp = {
+            "PROPANE": {"yuzde": 70.0, "tip": "Molar"},
+            "N-BUTANE": {"yuzde": 30.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(10.0, "bar"), Q_(9.5, "bar"),
+            Q_(60.0, "degC"), Q_(20.0, "degC"),
+            Q_(10.0, "degC"), Q_(30.0, "degC"), self.GEOM
+        )
+        self.assertTrue(res["segmental_applied"])
+        self.assertTrue(res["condensation_applied"])
+        self.assertTrue(any(s["two_phase"] for s in res["segments"]))
+        self.assertGreater(res["required_area_m2"], 0.0)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class CacheTests(unittest.TestCase):
+    def test_h_at_pt_cache_hit(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        h1 = cooler._h_at_pt(60e5, 350.0)
+        self.assertEqual(len(cooler._cache), 1)
+        h2 = cooler._h_at_pt(60e5, 350.0)
+        self.assertEqual(h1, h2)
+        self.assertEqual(len(cooler._cache), 1)
+
+    def test_transport_props_cache_hit(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        p1 = cooler.get_mixture_transport_properties(60e5, 350.0)
+        p2 = cooler.get_mixture_transport_properties(60e5, 350.0)
+        self.assertIs(p1, p2)
+
+    def test_cache_keyed_by_temperature(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        cooler.get_mixture_transport_properties(60e5, 300.0)
+        cooler.get_mixture_transport_properties(60e5, 350.0)
+        self.assertEqual(len(cooler._cache), 2)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class HeaderAndDraftTests(unittest.TestCase):
+    GEOM = {
+        "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+        "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+        "fin_height": 0.0159, "fin_thickness": 0.0004,
+        "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+        "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+        "fan_efficiency": 0.65, "fan_diameter": 2.44, "n_fans": 1, "fan_rpm": 350,
+    }
+    KOMP = {
+        "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+        "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+        "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+    }
+
+    def test_header_minor_loss_k(self):
+        from air_cooler_main_core import header_minor_loss_k
+        self.assertEqual(header_minor_loss_k("Tapalı Kollektör (Plug)"), 1.5)
+        self.assertEqual(header_minor_loss_k("Kapaklı Kollektör (Cover Plate)"), 1.0)
+        self.assertEqual(header_minor_loss_k("Başlıklı Kollektör (Bonnet)"), 0.7)
+        self.assertEqual(header_minor_loss_k("Bilinmeyen"), 1.0)
+
+    def test_header_type_increases_minor_dp(self):
+        komp = dict(self.KOMP)
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        geom_plug = dict(self.GEOM, header_type="Tapalı Kollektör (Plug)")
+        geom_bonnet = dict(self.GEOM, header_type="Başlıklı Kollektör (Bonnet)")
+        r_plug = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), geom_plug
+        )
+        r_bonnet = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), geom_bonnet
+        )
+        self.assertGreater(r_plug["gas_dP_bar"], r_bonnet["gas_dP_bar"])
+
+    def test_draft_type_forced_vs_induced(self):
+        komp = dict(self.KOMP)
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        r_forced = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"),
+            dict(self.GEOM, draft_type="Forced")
+        )
+        r_induced = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"),
+            dict(self.GEOM, draft_type="Induced")
+        )
+        self.assertEqual(r_forced["draft_type"], "Forced")
+        self.assertEqual(r_induced["draft_type"], "Induced")
+        self.assertNotEqual(r_forced["fan_power_kW"], r_induced["fan_power_kW"])
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class PhaseEnvelopeTests(unittest.TestCase):
+    def test_phase_envelope_heos_mixture(self):
+        komp = {
+            "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+            "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, engine="CoolProp", eos="HEOS", raw_p_unit="bar(a)")
+        env = cooler.get_phase_envelope()
+        self.assertIsNotNone(env)
+        self.assertGreater(len(env["T_C"]), 10)
+        self.assertGreater(len(env["P_bar"]), 10)
+        self.assertGreater(env["cricondentherm_C"], env["T_C"].min())
+        self.assertGreater(env["cricondenbar_bar"], env["P_bar"].min())
+
+    def test_phase_envelope_single_component(self):
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, engine="CoolProp", eos="HEOS", raw_p_unit="bar(a)")
+        env = cooler.get_phase_envelope()
+        self.assertIsNotNone(env)
+        self.assertGreater(len(env["T_C"]), 10)
+
+    def test_phase_envelope_returns_none_on_failure(self):
+        import air_cooler_main_core as core
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, engine="CoolProp", eos="HEOS", raw_p_unit="bar(a)")
+        orig = cooler._init_abstract_state
+        def _boom():
+            raise RuntimeError("envelope fail")
+        cooler._init_abstract_state = _boom
+        try:
+            self.assertIsNone(cooler.get_phase_envelope())
+        finally:
+            cooler._init_abstract_state = orig
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class SegmentalAirTempTests(unittest.TestCase):
+    GEOM = {
+        "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+        "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+        "fin_height": 0.0159, "fin_thickness": 0.0004,
+        "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+        "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+        "fan_efficiency": 0.65, "fan_diameter": 2.44, "n_fans": 1, "fan_rpm": 350,
+    }
+    KOMP = {
+        "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+        "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+        "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+    }
+
+    def test_segments_include_air_temperature(self):
+        komp = dict(self.KOMP)
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), dict(self.GEOM)
+        )
+        self.assertTrue(res["segmental_applied"])
+        for s in res["segments"]:
+            self.assertIn("T_air_in_C", s)
+            self.assertIn("T_air_out_C", s)
+            self.assertLess(s["T_air_in_C"], s["T_in_C"])
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class ExportSectionsTests(unittest.TestCase):
+    def test_export_common_sections_structure(self):
+        from air_cooler_export import _build_common_sections
+        geom = {
+            "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+            "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+            "fin_height": 0.0159, "fin_thickness": 0.0004,
+            "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+            "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+            "fan_efficiency": 0.65, "fan_diameter": 2.44, "n_fans": 1, "fan_rpm": 350,
+            "draft_type": "Forced", "fin_type": "L-Foot / Double L",
+            "header_type": "Tapalı Kollektör (Plug)", "ca": 1.6,
+            "asme_grade": "Karbon Çelik (SA-179/A214)",
+            "tube_mat": "Karbon Çelik (50 W/mK)", "fin_mat": "Alüminyum (205 W/mK)",
+        }
+        res = {
+            "Q_kW": 1000.0, "U_W_m2K": 40.0, "h_inside_W_m2K": 100.0,
+            "h_outside_actual_W_m2K": 50.0, "fin_efficiency": 0.8,
+            "surface_efficiency": 0.9, "actual_area_m2": 100.0,
+            "required_area_m2": 90.0, "overdesign_pct": 11.1,
+            "m_dot_air_kg_s": 20.0, "fan_tip_speed_m_s": 45.0,
+            "fan_sound_power_dB": 95.0, "gas_dP_bar": 0.5, "dP_air_Pa": 200.0,
+            "fan_power_kW": 15.0, "gas_velocity_m_s": 8.0, "gas_Re": 12000,
+        }
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        sections = _build_common_sections(res, geom, komp, "Sizing")
+        titles = [s[0] for s in sections]
+        self.assertIn("Proses Şartları", titles)
+        self.assertIn("Performans Verileri", titles)
+        self.assertIn("Boru & Kanat Geometrisi", titles)
+        self.assertIn("Mekanik & Malzeme", titles)
+        self.assertIn("Kompozisyon", titles)
+        all_text = " ".join(v for _, rows in sections for _, v in rows)
+        self.assertIn("Karbon Çelik (SA-179/A214)", all_text)
+        self.assertIn("L-Foot / Double L", all_text)
+
+
 if __name__ == "__main__":
     unittest.main()
 

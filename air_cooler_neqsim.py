@@ -14,15 +14,17 @@ import importlib
 
 # Lazy import for neqsim (avoids JVM start on module load)
 _HAS_NEQSIM = False
+_IMPORT_ATTEMPTED = False
 _neqsim = None
 _jpype = None
 _NEQSIM_JAR_PATH = None
 
 
 def _try_import_neqsim():
-    global _HAS_NEQSIM, _neqsim, _jpype, _NEQSIM_JAR_PATH
-    if _HAS_NEQSIM:
-        return True
+    global _HAS_NEQSIM, _neqsim, _jpype, _NEQSIM_JAR_PATH, _IMPORT_ATTEMPTED
+    if _IMPORT_ATTEMPTED:
+        return _HAS_NEQSIM
+    _IMPORT_ATTEMPTED = True
     # Ensure JAVA_HOME is set so neqsim's auto JVM start works
     _java_home = os.environ.get("JAVA_HOME") or ""
     if not _java_home or not os.path.exists(os.path.join(_java_home, "bin", "java")):
@@ -388,6 +390,9 @@ class NeqSimFluid:
         return NEQSIM_PHASE_NAMES.get(self._phase_index, "Bilinmiyor")
 
     def cp0mass(self):
+        return self.keyed_output(42)  # CP.iCpmass
+
+    def cpmass(self):
         return self.keyed_output(42)  # CP.iCpmass
 
     def hmolar(self):

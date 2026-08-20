@@ -9,6 +9,8 @@ import plotly.express as px
 import streamlit as st
 import ht
 
+from air_cooler_export import export_excel, export_pdf, save_project, list_projects, delete_project_file, load_project_filepath
+
 from air_cooler_main_core import (
     APP_DISPLAY_NAME,
     APP_VERSION,
@@ -31,6 +33,19 @@ from air_cooler_main_core import (
     assess_eos_risk,
     get_fallback_eos,
     EOS_RISK_RULES,
+    fin_type_temperature_limit_C,
+    required_tube_wall_with_ca,
+    TUBE_MATERIAL_GRADES,
+)
+from air_cooler_users import (
+    register_user,
+    delete_user as auth_delete_user,
+    update_user_role,
+    list_users as auth_list_users,
+    update_last_login,
+    change_password,
+    is_default_password,
+    validate_password as validate_user_password,
 )
 
 APP_DIR = Path(__file__).resolve().parent
@@ -476,6 +491,117 @@ def draw_preliminary_sizing(ara):
                 st.write("**Varsayım:** karşı-akış eşdeğeri + kullanıcı F faktörü")
 
 
+def draw_phase_envelope(cooler, p_in_bar=None, t_in_c=None, p_out_bar=None, t_out_c=None):
+    envelope = cooler.get_phase_envelope()
+    if not envelope:
+        st.caption("ℹ️ Faz zarfı bu motor/EOS kombinasyonu için oluşturulamadı (yalnızca CoolProp HEOS desteklenir).")
+        return
+
+    with st.expander("🌡️ PT Faz Zarfı (Phase Envelope)", expanded=False):
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=envelope["T_C"], y=envelope["P_bar"],
+                mode="lines", line=dict(color="#8e44ad", width=3),
+                name="Faz Zarfı", fill="tozeroy", fillcolor="rgba(142,68,173,0.08)",
+            )
+        )
+        if envelope["T_crit_C"] is not None:
+            fig.add_trace(go.Scatter(
+                x=[envelope["T_crit_C"]], y=[envelope["P_crit_bar"]],
+                mode="markers", marker=dict(color="#c0392b", size=12, symbol="star"),
+                name=f"Kritik Nokta ({envelope['T_crit_C']:.1f}°C, {envelope['P_crit_bar']:.1f} bar)",
+            ))
+        if p_in_bar is not None and t_in_c is not None:
+            fig.add_trace(go.Scatter(
+                x=[t_in_c], y=[p_in_bar], mode="markers+text",
+                marker=dict(color="#e67e22", size=12, symbol="circle"),
+                text=["Giriş"], textposition="top center",
+                name="Giriş Noktası",
+            ))
+        if p_out_bar is not None and t_out_c is not None:
+            fig.add_trace(go.Scatter(
+                x=[t_out_c], y=[p_out_bar], mode="markers+text",
+                marker=dict(color="#2ecc71", size=12, symbol="square"),
+                text=["Çıkış"], textposition="top center",
+                name="Çıkış Noktası",
+            ))
+        fig.update_layout(
+            title="PT Faz Zarfı",
+            xaxis_title="Sıcaklık (°C)",
+            yaxis_title="Basınç (bar)",
+            height=420,
+            margin=dict(l=0, r=0, t=40, b=0),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            f"Cricondentherm: {envelope['cricondentherm_C']:.1f} °C · "
+            f"Cricondenbar: {envelope['cricondenbar_bar']:.1f} bar"
+        )
+
+
+def draw_temperature_profile(segments):
+    """Proses ve hava sıcaklığını kümülatif alan üzerinde çizer."""
+    if not segments:
+        return
+    xs = [0.0]
+    t_proc = [segments[0]["T_out_C"]]
+    t_air = [segments[0]["T_air_out_C"]]
+    for s in segments:
+        xs.append(xs[-1] + s["area_m2"])
+        t_proc.append(s["T_in_C"])
+        t_air.append(s["T_air_in_C"])
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=xs, y=t_proc, mode="lines+markers",
+        line=dict(color="#e74c3c", width=2), name="Proses Sıcaklığı",
+    ))
+    fig.add_trace(go.Scatter(
+        x=xs, y=t_air, mode="lines+markers",
+        line=dict(color="#2980b9", width=2, dash="dash"), name="Hava Sıcaklığı",
+    ))
+    fig.update_layout(
+        title="Boru Boyu / Alan Boyunca Sıcaklık Profili",
+        xaxis_title="Kümülatif Alan (m²)",
+        yaxis_title="Sıcaklık (°C)",
+        height=380,
+        margin=dict(l=0, r=0, t=40, b=0),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def draw_bundle_layout(geom_params):
+    """Boru demeti kesit düzenini (sıra × tüp) gösterir."""
+    rows = int(geom_params.get("tube_rows", 4))
+    cols = int(geom_params.get("tubes_per_row", 24))
+    pitch = float(geom_params.get("pitch", 0.0635)) * 1000.0
+
+    xs, ys = [], []
+    for r in range(rows):
+        for c in range(cols):
+            x = c * pitch
+            y = r * pitch * 0.866 if geom_params.get("angle", 30) == 30 else r * pitch
+            xs.append(x)
+            ys.append(y)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=xs, y=ys, mode="markers",
+        marker=dict(size=7, color="#3498db", opacity=0.8, line=dict(width=1, color="#1f618d")),
+        name="Tüpler",
+    ))
+    fig.update_layout(
+        title=f"Boru Demeti Kesiti ({rows} sıra × {cols} tüp, adım {pitch:.0f} mm)",
+        xaxis_title="Yatay (mm)",
+        yaxis_title="Dikey (mm)",
+        height=360,
+        margin=dict(l=0, r=0, t=40, b=0),
+        showlegend=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def draw_release_notes():
     if not should_show_release_notes():
         return
@@ -514,9 +640,11 @@ def draw_login_page():
             if st.button("Giriş Yap", type="primary", use_container_width=True):
                 success, role = authenticate_user(username_input, password_input, users_db)
                 if success:
+                    uname = username_input.strip()
                     st.session_state.authenticated = True
-                    st.session_state.username = username_input.strip()
+                    st.session_state.username = uname
                     st.session_state.role = role
+                    update_last_login(uname, users_db, USERS_FILE)
                     if is_default_password(password_input):
                         st.session_state.default_password = True
                         st.warning("⚠️ Varsayılan şifre ile giriş yaptınız. Güvenlik için şifrenizi değiştirmeniz önerilir.")
@@ -527,10 +655,11 @@ def draw_login_page():
                         st.rerun()
                 else:
                     st.error("Hatalı kullanıcı adı veya şifre!")
-                    
-            if st.session_state.get("default_password") and st.session_state.get("authenticated"):
-                with st.expander("🔑 Şifre Değiştir", expanded=True):
-                    st.warning("Varsayılan şifre kullanıyorsunuz. Lütfen şifrenizi değiştirin.")
+
+            with st.popover("🔑 Şifre Değiştir", use_container_width=True):
+                if not st.session_state.get("authenticated"):
+                    st.info("Önce giriş yapın.")
+                else:
                     with st.form("password_change_form"):
                         cur_pass = st.text_input("Mevcut Şifre", type="password", key="cur_pass_input")
                         new_pass = st.text_input("Yeni Şifre (en az 6 karakter)", type="password", key="new_pass_input")
@@ -551,6 +680,25 @@ def draw_login_page():
                                     st.rerun()
                                 else:
                                     st.error(f"❌ {msg}")
+
+            with st.popover("📝 Kayıt Ol", use_container_width=True):
+                with st.form("register_form"):
+                    reg_user = st.text_input("Kullanıcı Adı", key="reg_user")
+                    reg_email = st.text_input("E-posta", key="reg_email")
+                    reg_pass = st.text_input("Şifre (en az 6 karakter)", type="password", key="reg_pass")
+                    reg_pass2 = st.text_input("Şifre (Tekrar)", type="password", key="reg_pass2")
+                    if st.form_submit_button("Kaydol", type="primary"):
+                        if not reg_user or not reg_pass:
+                            st.error("Kullanıcı adı ve şifre gerekli.")
+                        elif reg_pass != reg_pass2:
+                            st.error("Şifreler eşleşmiyor.")
+                        else:
+                            ok, msg = register_user(reg_user, reg_pass, reg_email, users_db, USERS_FILE)
+                            if ok:
+                                st.success(f"✅ {msg} Şimdi giriş yapabilirsiniz.")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg}")
 
 
 def draw_advanced_design():
@@ -638,6 +786,25 @@ def draw_advanced_design():
             adv_t_out = st.number_input("Çıkış Sıcaklığı (Boyutlandırma için)", min_value=min_temp, value=default_out, key="adv_t_out")
             
         adv_p_out = st.number_input("Çıkış Basıncı", min_value=0.0, value=adv_p_in - 1.0, key="adv_p_out")
+
+    if st.session_state.get("kompozisyon"):
+        try:
+            _env_eng, _env_eos = resolve_engine_eos(st.session_state.adv_engine, st.session_state.adv_eos_label)
+            _env_cooler = AirFinnedGasCooler(
+                st.session_state.kompozisyon,
+                engine=_env_eng,
+                eos=_env_eos,
+                raw_p_unit=adv_p_unit,
+                atmospheric_pressure_pa=st.session_state.P_ATM_PA,
+                logger=log_message,
+            )
+            _t_in_c = Q_(adv_t_in, clean_temp_unit(adv_t_unit)).to("degC").m
+            _t_out_c = Q_(adv_t_out, clean_temp_unit(adv_t_unit)).to("degC").m
+            _p_in_bar = Q_(adv_p_in, clean_pressure_unit(adv_p_unit)).to("bar").m
+            _p_out_bar = Q_(adv_p_out, clean_pressure_unit(adv_p_unit)).to("bar").m
+            draw_phase_envelope(_env_cooler, _p_in_bar, _t_in_c, _p_out_bar, _t_out_c)
+        except Exception as _env_exc:
+            st.caption(f"ℹ️ Faz zarfı oluşturulamadı: {_env_exc}")
 
     # 2. Mod Seçimi ve Özel Girdiler
     mode = st.radio("Çalışma Modu Seçin", ["Basit Dizayn (Teorik Isı Yükü)", "Detaylı Boyutlandırma (Sizing)", "Eşanjör Değerlendirme (Rating)"], horizontal=True)
@@ -755,12 +922,16 @@ def draw_advanced_design():
                 fin_thick = st.number_input("Kanatçık Kalınlığı (mm)", min_value=0.1, max_value=5.0, value=0.4, key="adv_fin_thick")
             with g_col6:
                 fin_fpi = st.number_input("İnç Başına Kanatçık (FPI)", min_value=2.0, max_value=30.0, value=10.0, key="adv_fin_fpi")
+                fin_type = st.selectbox("Kanat Bağlantı Tipi", ["L-Foot / Double L", "KL (Knurled L)", "Embedded (G-Fin)", "Extruded"], key="adv_fin_type")
             with g_col7:
                 tube_mat = st.selectbox("Boru Malzemesi (İletkenlik)", ["Karbon Çelik (50 W/mK)", "Paslanmaz Çelik (15 W/mK)", "Bakır (385 W/mK)"], key="adv_tube_mat")
                 fin_mat = st.selectbox("Kanatçık Malzemesi (İletkenlik)", ["Alüminyum (205 W/mK)", "Bakır (385 W/mK)"], key="adv_fin_mat")
+                header_type = st.selectbox("Kollektör (Header) Tipi", ["Tapalı Kollektör (Plug)", "Kapaklı Kollektör (Cover Plate)", "Başlıklı Kollektör (Bonnet)"], key="adv_header_type")
             with g_col8:
                 fouling_in = st.number_input("Boru İçi Kirlenme (m²K/W)", min_value=0.0, value=0.000176, format="%.6f", help="TEMA standardı doğalgaz kirlenme katsayısı: 0.000176", key="adv_fouling_in")
                 fouling_out = st.number_input("Hava Kirlenme Katsayısı (m²K/W)", min_value=0.0, value=0.000088, format="%.6f", key="adv_fouling_out")
+                corr_allow = st.number_input("Korozyon Payı (mm)", min_value=0.0, max_value=10.0, value=1.6, help="ASME tasarımında boru iç yüzeyi için korozyon payı", key="adv_ca")
+                asme_grade = st.selectbox("Boru Malzeme Sınıfı (ASME)", ["Karbon Çelik (SA-179/A214)", "Paslanmaz Çelik (SA-213 316L)", "Duplex (SA-789 2205)"], key="adv_asme_grade")
 
             g_col9, g_col10, g_col11, g_col12 = st.columns(4)
             with g_col9:
@@ -768,6 +939,8 @@ def draw_advanced_design():
                 fan_eff = fan_eff_raw / 100.0
                 fan_diameter = st.number_input("Fan Çapı (m)", min_value=0.5, max_value=10.0, value=2.44, help="API 661 standardına göre fan çapı", key="adv_fan_dia")
                 n_fans = st.number_input("Fan Sayısı", min_value=1, max_value=20, value=1, key="adv_n_fans")
+                fan_rpm = st.number_input("Fan Devri (RPM)", min_value=50, max_value=2000, value=350, help="Kanat uç hızı hesabı için fan devri", key="adv_fan_rpm")
+                draft_type = st.selectbox("Çekiş Tipi", ["Cebri Çekiş (Forced Draft)", "İndüklenmiş Çekiş (Induced Draft)"], key="adv_draft_type")
             with g_col10:
                 default_air_in_s = 25.0 if adv_t_unit != "K" else 298.15
                 air_in_s = st.number_input("Tasarım Hava Giriş Sıcaklığı", min_value=min_temp, value=default_air_in_s, key="air_in_s")
@@ -797,15 +970,21 @@ def draw_advanced_design():
                     "fin_height": float(fin_height / 1000.0),
                     "fin_thickness": float(fin_thick / 1000.0),
                     "fin_density": float(fin_fpi * 39.37),
+                    "fin_type": fin_type,
+                    "header_type": header_type,
                     "pitch": float(pitch_normal / 1000.0),
                     "angle": float(layout_angle),
                     "tube_k": k_tube,
                     "fin_k": k_fin,
+                    "tube_mat": tube_mat,
+                    "fin_mat": fin_mat,
                     "fouling_in": fouling_in,
                     "fouling_out": fouling_out,
                     "fan_efficiency": fan_eff,
                     "fan_diameter": float(fan_diameter),
-                    "n_fans": int(n_fans)
+                    "n_fans": int(n_fans),
+                    "fan_rpm": int(fan_rpm),
+                    "draft_type": draft_type
                 }
                 
                 _engine_b, _eos_v = resolve_engine_eos(st.session_state.adv_engine, st.session_state.adv_eos_label)
@@ -837,6 +1016,10 @@ def draw_advanced_design():
                     geom_params=geom_params
                 )
                 
+                st.session_state.last_res = res.copy()
+                for k in ("bolgeler",):
+                    if k in res:
+                        st.session_state.last_res[k] = res[k]
                 st.success("✅ Detaylı Boyutlandırma Hesaplaması Tamamlandı!")
                 
                 m_col1, m_col2, m_col3, m_col4 = st.columns(4)
@@ -890,14 +1073,85 @@ def draw_advanced_design():
                     else:
                         st.info(f"✅ **Boru Duvar Kalınlığı:** {tube_thick_mm:.2f} mm ≥ {min_wall:.2f} mm. API 661 uyumlu.")
                     
-                    v_fan = res.get('v_fan_m_s', 0.0)
-                    if v_fan > 0:
-                        if v_fan > 61.0:
-                            st.warning(f"⚠️ **Fan Kanat Uç Hızı:** {v_fan:.1f} m/s > 61 m/s. API 661 maksimum 61 m/s (standart) / 50 m/s (düşük gürültü) önerir.")
-                        elif v_fan > 50.0:
-                            st.warning(f"⚠️ **Fan Kanat Uç Hızı:** {v_fan:.1f} m/s > 50 m/s. Düşük gürültü uygulamaları için maksimum 50 m/s önerilir.")
+                    v_tip = res.get('fan_tip_speed_m_s', 0.0)
+                    if v_tip > 0:
+                        if v_tip > 61.0:
+                            st.warning(f"⚠️ **Fan Kanat Uç Hızı (Tip Speed):** {v_tip:.1f} m/s > 61 m/s. API 661 maksimum 61 m/s (standart) / 50 m/s (düşük gürültü) önerir.")
+                        elif v_tip > 50.0:
+                            st.warning(f"⚠️ **Fan Kanat Uç Hızı (Tip Speed):** {v_tip:.1f} m/s > 50 m/s. Düşük gürültü uygulamaları için maksimum 50 m/s önerilir.")
                         else:
-                            st.info(f"✅ **Fan Kanat Uç Hızı:** {v_fan:.1f} m/s ≤ 50 m/s. API 661 uyumlu.")
+                            st.info(f"✅ **Fan Kanat Uç Hızı (Tip Speed):** {v_tip:.1f} m/s ≤ 50 m/s. API 661 uyumlu.")
+                    else:
+                        st.info("ℹ️ **Fan Kanat Uç Hızı:** Fan devri (RPM) girilmeden hesaplanamaz.")
+
+                    fan_lw = res.get('fan_sound_power_dB', 0.0)
+                    if fan_lw > 0:
+                        spl_1m = fan_lw - 8.0
+                        st.info(f"🔊 **Fan Ses Gücü Seviyesi:** ~{fan_lw:.0f} dB (yaklaşık SPL @1m: ~{spl_1m:.0f} dB(A)) — tarama seviyesi tahmin.")
+
+                    fin_limit_c = fin_type_temperature_limit_C(fin_type)
+                    if fin_limit_c is not None:
+                        t_in_c = t_in_q.to("degC").m
+                        if t_in_c > fin_limit_c:
+                            st.warning(f"⚠️ **Kanat Tipi Sıcaklık Limiti:** Proses giriş sıcaklığı {t_in_c:.1f} °C > {fin_limit_c:.0f} °C ({fin_type} için API 661 limiti). Daha yüksek sıcaklık sınıfı kanat tipi seçin (ör. Embedded/Extruded).")
+                        else:
+                            st.info(f"✅ **Kanat Tipi Sıcaklık Limiti:** {t_in_c:.1f} °C ≤ {fin_limit_c:.0f} °C ({fin_type}). API 661 uyumlu.")
+
+                    grade = TUBE_MATERIAL_GRADES.get(asme_grade)
+                    if grade:
+                        design_P_pa = max(adv_p_in, adv_p_out) * 1e5 * 1.1
+                        S_pa = grade["S_MPa"] * 1e6
+                        E = grade["E"]
+                        CA_m = float(corr_allow) / 1000.0
+                        t_req_mm = required_tube_wall_with_ca(
+                            design_P_pa, tube_od / 1000.0, S_pa, E, CA_m
+                        ) * 1000.0
+                        if tube_thick < t_req_mm:
+                            st.warning(f"⚠️ **ASME VIII Div.1 (App.1-1):** Gerekli min. et kalınlığı {t_req_mm:.2f} mm (dahil {corr_allow:.1f} mm CA) > girilen {tube_thick:.2f} mm. Et kalınlığını artırın veya malzeme sınıfını yükseltin.")
+                        else:
+                            st.info(f"✅ **ASME VIII Div.1 (App.1-1):** Gerekli min. et kalınlığı {t_req_mm:.2f} mm ≤ girilen {tube_thick:.2f} mm ({asme_grade}).")
+
+                if res.get('segmental_applied') and res.get('segments'):
+                    with st.expander("🔬 Bölgesel (Segmental) Analiz", expanded=False):
+                        st.caption("Isı yükü 12 eşit entalpi segmentine bölünerek her segmentte ayrı U, hi ve alan hesaplandı (yoğuşma segmentlerinde Silver-Bell-Ghaly düzeltmesi).")
+                        seg_rows = [
+                            {
+                                "Segment": s["index"] + 1,
+                                "Faz": "İki Faz" if s["two_phase"] else "Tek Faz",
+                                "T Giriş (°C)": f"{s['T_in_C']:.1f}",
+                                "T Çıkış (°C)": f"{s['T_out_C']:.1f}",
+                                "Q (kW)": f"{s['Q_kW']:.2f}",
+                                "U (W/m²K)": f"{s['U_W_m2K']:.2f}",
+                                "hi (W/m²K)": f"{s['h_inside_W_m2K']:.1f}",
+                                "Alan (m²)": f"{s['area_m2']:.2f}",
+                            }
+                            for s in res["segments"]
+                        ]
+                        st.dataframe(pd.DataFrame(seg_rows), use_container_width=True, hide_index=True)
+                        draw_temperature_profile(res["segments"])
+                        draw_bundle_layout(geom_params)
+
+                with st.container(border=True):
+                    st.markdown("**📥 Rapor İndir**")
+                    exp_col1, exp_col2 = st.columns(2)
+                    with exp_col1:
+                        excel_buf = export_excel(res, geom_params, st.session_state.kompozisyon, mode="Sizing")
+                        st.download_button(
+                            label="📊 Excel Raporu İndir",
+                            data=excel_buf,
+                            file_name=f"AirCooler_Sizing_{datetime.now():%Y%m%d_%H%M}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                        )
+                    with exp_col2:
+                        pdf_buf = export_pdf(res, geom_params, st.session_state.kompozisyon, mode="Sizing")
+                        st.download_button(
+                            label="📄 PDF Raporu İndir",
+                            data=pdf_buf,
+                            file_name=f"AirCooler_Sizing_{datetime.now():%Y%m%d_%H%M}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
             
             except Exception as e:
                 st.error(f"Hesaplama hatası: {e}")
@@ -991,6 +1245,7 @@ def draw_advanced_design():
                     geom_params=geom_params
                 )
                 
+                st.session_state.last_res = res.copy()
                 st.success("✅ Eşanjör Performans Değerlendirmesi Tamamlandı!")
                 
                 rc_1, rc_2, rc_3 = st.columns(3)
@@ -1014,7 +1269,29 @@ def draw_advanced_design():
                         st.write(f"**Gaz Tarafı Basınç Düşümü (Friction):** {res['gas_dP_bar']:.4f} bar")
                         st.write(f"**Hava Tarafı Basınç Düşümü (ESDU):** {res['dP_air_Pa']:.2f} Pa")
                         st.write(f"**Çıkış Gaz Faz Durumu:** **{res['gas_out_phase']}**")
-                        
+
+                with st.container(border=True):
+                    st.markdown("**📥 Rapor İndir**")
+                    exp_col1, exp_col2 = st.columns(2)
+                    with exp_col1:
+                        excel_buf = export_excel(res, geom_params, st.session_state.kompozisyon, mode="Rating")
+                        st.download_button(
+                            label="📊 Excel Raporu İndir",
+                            data=excel_buf,
+                            file_name=f"AirCooler_Rating_{datetime.now():%Y%m%d_%H%M}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                        )
+                    with exp_col2:
+                        pdf_buf = export_pdf(res, geom_params, st.session_state.kompozisyon, mode="Rating")
+                        st.download_button(
+                            label="📄 PDF Raporu İndir",
+                            data=pdf_buf,
+                            file_name=f"AirCooler_Rating_{datetime.now():%Y%m%d_%H%M}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
+            
             except Exception as e:
                 st.error(f"Değerlendirme hatası: {e}")
                 log_error("Değerlendirme hesaplama hatası.", e)
@@ -1070,9 +1347,13 @@ def serialize_inputs(state=None):
         "tube_od": 25.4, "tube_thick": 2.11, "tube_len": 6.0,
         "tubes_per_row": 24, "layout_angle": 30, "pitch_normal": 63.5,
         "fin_height": 15.9, "fin_thick": 0.4, "fin_fpi": 10.0,
+        "fin_type": "L-Foot / Double L",
+        "header_type": "Tapalı Kollektör (Plug)",
         "tube_mat": "Karbon Çelik (50 W/mK)", "fin_mat": "Alüminyum (205 W/mK)",
         "fouling_in": 0.000176, "fouling_out": 0.000088, "fan_eff": 65.0,
-        "fan_dia": 2.44, "n_fans": 1,
+        "fan_dia": 2.44, "n_fans": 1, "fan_rpm": 350,
+        "draft_type": "Cebri Çekiş (Forced Draft)",
+        "ca": 1.6, "asme_grade": "Karbon Çelik (SA-179/A214)",
     }
     geom = {}
     for gk, gdefault in geom_keys.items():
@@ -1108,6 +1389,17 @@ def serialize_inputs(state=None):
             adv[k] = v
 
     i["advanced_tab"] = adv
+
+    last_res = _s("last_res")
+    if last_res:
+        rs = {}
+        for k, v in last_res.items():
+            try:
+                json.dumps(v)
+                rs[k] = v
+            except (TypeError, OverflowError):
+                rs[k] = str(v)
+        i["last_res"] = rs
 
     return json.dumps(inp, ensure_ascii=False, indent=2)
 
@@ -1149,10 +1441,14 @@ def load_project_file(data, state=None):
             "tube_len": "adv_tube_len", "tubes_per_row": "adv_tubes_per_row",
             "layout_angle": "adv_layout_angle", "pitch_normal": "adv_pitch_normal",
             "fin_height": "adv_fin_height", "fin_thick": "adv_fin_thick",
-            "fin_fpi": "adv_fin_fpi", "tube_mat": "adv_tube_mat",
+            "fin_fpi": "adv_fin_fpi", "fin_type": "adv_fin_type",
+            "header_type": "adv_header_type",
+            "tube_mat": "adv_tube_mat",
             "fin_mat": "adv_fin_mat", "fouling_in": "adv_fouling_in",
             "fouling_out": "adv_fouling_out", "fan_eff": "adv_fan_eff",
-            "fan_dia": "adv_fan_dia", "n_fans": "adv_n_fans"}
+            "fan_dia": "adv_fan_dia", "n_fans": "adv_n_fans", "fan_rpm": "adv_fan_rpm",
+            "draft_type": "adv_draft_type",
+            "ca": "adv_ca", "asme_grade": "adv_asme_grade"}
     for gk, sk in gmap.items():
         v = at.get("geometry", {}).get(gk)
         if v is not None:
@@ -1178,6 +1474,10 @@ def load_project_file(data, state=None):
         if v is not None:
             state[k] = v
 
+    results = data.get("results", i.get("last_res", {}))
+    if results:
+        state["last_res"] = results
+
     state["eos_warning_accepted"] = False
     state["q_eos_warning_accepted"] = False
 
@@ -1190,22 +1490,80 @@ def draw_main():
     role = st.session_state.get("role", "user")
 
     # ── Proje Kaydet / Aç Toolbar ──
-    tb_col1, tb_col2, tb_col3, tb_col4 = st.columns([4, 1, 1, 6])
-    with tb_col2:
-        proje_json = serialize_inputs()
-        st.download_button(
-            "💾 Kaydet",
-            data=proje_json,
-            file_name=f"air_cooler_{datetime.now():%Y%m%d_%H%M}.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-    with tb_col3:
-        if st.button("📂 Aç", use_container_width=True):
+    username = st.session_state.get("username", "user")
+
+    proje_json = serialize_inputs()
+    st.caption("Proje kaydetmek/açmak için üstteki araçları kullanın.")
+
+    with st.expander("💾 Proje Yönetimi", expanded=False):
+        save_col1, save_col2, save_col3 = st.columns([3, 1, 1])
+        with save_col1:
+            project_name = st.text_input("Proje Adı", value="", placeholder="örn: Doğalgaz Soğutucu", label_visibility="collapsed")
+            project_desc = st.text_input("Açıklama", value="", placeholder="Kısa açıklama (opsiyonel)", label_visibility="collapsed")
+        with save_col2:
+            if st.button("💾 Sunucuya Kaydet", use_container_width=True):
+                if not project_name:
+                    st.error("Lütfen bir proje adı girin.")
+                else:
+                    try:
+                        inputs_data = json.loads(proje_json)
+                        results_data = st.session_state.get("last_res", {})
+                        path = save_project(project_name, project_desc, inputs_data.get("inputs", inputs_data), results_data, saved_by=username)
+                        st.success(f"✅ Proje kaydedildi: {Path(path).name}")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Kayıt hatası: {exc}")
+        with save_col3:
+            st.download_button(
+                "📥 Dışa Aktar",
+                data=proje_json,
+                file_name=f"air_cooler_{datetime.now():%Y%m%d_%H%M}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+
+        st.divider()
+        st.markdown("**📂 Kayıtlı Projeler**")
+        projects = list_projects()
+        if not projects:
+            st.info("Henüz kaydedilmiş proje yok.")
+        else:
+            proj_options = {f"{p['project_name']} ({p['filename']})": p for p in projects}
+            selected_label = st.selectbox("Bir proje seçin", list(proj_options.keys()), label_visibility="collapsed")
+            if selected_label:
+                sel = proj_options[selected_label]
+                desc = sel.get("description", "")
+                meta = f"👤 {sel.get('saved_by', '?')} | 🕐 {sel.get('updated_at', '?')[:16]}"
+                st.caption(f"{desc} — {meta}" if desc else meta)
+                act_col1, act_col2, act_col3 = st.columns([1, 1, 1])
+                with act_col1:
+                    if st.button("📂 Yükle", use_container_width=True):
+                        try:
+                            data = load_project_filepath(sel["path"])
+                            load_project_file(data)
+                            st.success(f"✅ {sel['project_name']} yüklendi.")
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Yükleme hatası: {exc}")
+                with act_col2:
+                    st.download_button(
+                        "📥 Dışa Aktar",
+                        data=json.dumps(load_project_filepath(sel["path"]), ensure_ascii=False, indent=2),
+                        file_name=sel["filename"],
+                        mime="application/json",
+                        use_container_width=True,
+                    )
+                with act_col3:
+                    if st.button("🗑️ Sil", use_container_width=True, type="secondary"):
+                        if delete_project_file(sel["path"]):
+                            st.success(f"✅ {sel['project_name']} silindi.")
+                            st.rerun()
+                        else:
+                            st.error("Silme hatası.")
+        st.divider()
+        if st.button("📂 Dosyadan Aç", use_container_width=True):
             st.session_state.show_file_loader = True
-            st.rerun()
-    if st.session_state.show_file_loader:
-        with tb_col4:
+        if st.session_state.show_file_loader:
             uploaded = st.file_uploader("Proje dosyası seçin", type="json", label_visibility="collapsed")
             if uploaded:
                 try:
@@ -1217,15 +1575,14 @@ def draw_main():
                 except Exception as exc:
                     st.error(f"Dosya yüklenemedi: {exc}")
                     st.session_state.show_file_loader = False
-    if proje_json != "{}":
-        st.caption("Proje kaydetmek/açmak için üstteki butonları kullanın.")
     st.divider()
 
     if role == "admin":
-        tab_inputs, tab_report, tab_new_design, tab_logs = st.tabs(["⚙️ Girişler", "📊 Rapor", "📐 Gelişmiş Boyutlandırma", "📜 Kayıtlar"])
+        tab_inputs, tab_report, tab_new_design, tab_users, tab_logs = st.tabs(["⚙️ Girişler", "📊 Rapor", "📐 Gelişmiş Boyutlandırma", "👥 Kullanıcı Yönetimi", "📜 Kayıtlar"])
     else:
         tab_inputs, tab_report, tab_logs = st.tabs(["⚙️ Girişler", "📊 Rapor", "📜 Kayıtlar"])
         tab_new_design = None
+        tab_users = None
 
     with tab_inputs:
         st.header("1. Akışkan Bileşimi")
@@ -1629,6 +1986,59 @@ def draw_main():
     if tab_new_design is not None:
         with tab_new_design:
             draw_advanced_design()
+
+    if tab_users is not None:
+        with tab_users:
+            st.subheader("👥 Kullanıcı Yönetimi")
+            user_list = auth_list_users(users_db)
+
+            st.markdown("**Mevcut Kullanıcılar**")
+            if user_list:
+                df_users = pd.DataFrame(user_list)
+                df_users.columns = ["Kullanıcı Adı", "Rol", "E-posta", "Görünen Ad", "Oluşturulma", "Son Giriş"]
+                st.dataframe(df_users, use_container_width=True, hide_index=True)
+
+            with st.popover("➕ Yeni Kullanıcı Ekle", use_container_width=True):
+                with st.form("admin_add_user"):
+                    au_user = st.text_input("Kullanıcı Adı", key="au_user")
+                    au_email = st.text_input("E-posta", key="au_email")
+                    au_pass = st.text_input("Şifre (en az 6 karakter)", type="password", key="au_pass")
+                    au_role = st.selectbox("Rol", ["user", "admin"], key="au_role")
+                    if st.form_submit_button("Oluştur", type="primary"):
+                        if not au_user or not au_pass:
+                            st.error("Kullanıcı adı ve şifre gerekli.")
+                        else:
+                            ok, msg = register_user(au_user, au_pass, au_email, users_db, USERS_FILE)
+                            if ok:
+                                st.success(f"✅ {msg}")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {msg}")
+
+            st.divider()
+            st.markdown("**Kullanıcı İşlemleri**")
+            user_names = [u["username"] for u in user_list]
+            if user_names:
+                op_col1, op_col2, op_col3 = st.columns(3)
+                with op_col1:
+                    sel_user = st.selectbox("Kullanıcı Seç", user_names, label_visibility="collapsed")
+                with op_col2:
+                    new_role = st.selectbox("Yeni Rol", ["user", "admin"], index=0, key="admin_role_sel")
+                    if st.button("Rolü Güncelle", use_container_width=True):
+                        ok, msg = update_user_role(sel_user, new_role, users_db, USERS_FILE)
+                        if ok:
+                            st.success(f"✅ {msg}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg}")
+                with op_col3:
+                    if st.button("🗑️ Kullanıcıyı Sil", use_container_width=True, type="secondary"):
+                        ok, msg = auth_delete_user(sel_user, users_db, USERS_FILE)
+                        if ok:
+                            st.success(f"✅ {msg}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {msg}")
 
     with tab_logs:
         if st.session_state.log_records:
