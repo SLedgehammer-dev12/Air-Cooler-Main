@@ -1301,6 +1301,23 @@ def draw_advanced_design():
 # PROJE KAYDET / AÇ
 # ═══════════════════════════════════════════════════════════
 
+def _json_safe(value):
+    """Dataclass ve numpy değerlerini JSON-serializable yapıya derinlemesine çevirir."""
+    import dataclasses
+    import numpy as np
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _json_safe(dataclasses.asdict(value))
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
 def serialize_inputs(state=None):
     """Tüm girdileri JSON-serializable dict'e çevirir."""
     if state is None:
@@ -1395,6 +1412,7 @@ def serialize_inputs(state=None):
         rs = {}
         for k, v in last_res.items():
             try:
+                v = _json_safe(v)
                 json.dumps(v)
                 rs[k] = v
             except (TypeError, OverflowError):

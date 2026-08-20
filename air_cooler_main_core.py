@@ -9,6 +9,7 @@ import hashlib
 import os
 import json
 from pathlib import Path
+from dataclasses import dataclass, field, fields, is_dataclass, asdict
 
 from air_cooler_neqsim import (
     has_neqsim,
@@ -25,6 +26,61 @@ APP_DISPLAY_NAME = "Air Cooler Main"
 APP_VERSION = "4.0.0"
 DEFAULT_ATM_PRESSURE_PA = 101325.0
 SATURATION_TOLERANCE_K = 0.25
+
+
+class DictLikeDataclass:
+    """Dataclass'ları hem nitelik (`obj.x`) hem sözlük (`obj["x"]`) erişimiyle
+    destekler; mevcut dict tabanlı tüketiciler geriye uyumlu kalır."""
+
+    def __getitem__(self, key):
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key) from None
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
+    def keys(self):
+        return [f.name for f in fields(self)]
+
+    def items(self):
+        return [(f.name, getattr(self, f.name)) for f in fields(self)]
+
+    def __iter__(self):
+        return iter(self.keys())
+
+    def __contains__(self, key):
+        return key in self.keys()
+
+    def to_dict(self):
+        return asdict(self)
+
+
+@dataclass
+class HeatExchangerSegment(DictLikeDataclass):
+    """Segmental hesapta tek bir entalpi segmentinin sonucu."""
+    index: int
+    T_in_C: float
+    T_out_C: float
+    T_air_in_C: float
+    T_air_out_C: float
+    Q_kW: float
+    U_W_m2K: float
+    h_inside_W_m2K: float
+    area_m2: float
+    two_phase: bool
+
+
+@dataclass
+class PhaseEnvelopeData(DictLikeDataclass):
+    """PT faz zarfı sonucu. T_C / P_bar numpy dizileri; diğer alanlar skaler."""
+    T_C: np.ndarray
+    P_bar: np.ndarray
+    T_crit_C: float
+    P_crit_bar: float
+    cricondentherm_C: float
+    cricondenbar_bar: float
 
 def resolve_pitches(pitch_normal_m, angle_deg):
     if angle_deg == 30:
@@ -813,18 +869,18 @@ class AirFinnedGasCooler:
             hi_weighted += h_inside * A_seg
             dp_total += dp_seg
 
-            seg_list.append({
-                "index": i,
-                "T_in_C": T_hot - 273.15,
-                "T_out_C": T_cold - 273.15,
-                "T_air_in_C": T_air_hot - 273.15,
-                "T_air_out_C": T_air_cold - 273.15,
-                "Q_kW": Q_seg / 1000.0,
-                "U_W_m2K": U_seg,
-                "h_inside_W_m2K": h_inside,
-                "area_m2": A_seg,
-                "two_phase": is_tp,
-            })
+            seg_list.append(HeatExchangerSegment(
+                index=i,
+                T_in_C=T_hot - 273.15,
+                T_out_C=T_cold - 273.15,
+                T_air_in_C=T_air_hot - 273.15,
+                T_air_out_C=T_air_cold - 273.15,
+                Q_kW=Q_seg / 1000.0,
+                U_W_m2K=U_seg,
+                h_inside_W_m2K=h_inside,
+                area_m2=A_seg,
+                two_phase=is_tp,
+            ))
 
         if total_area <= 0:
             return None
@@ -1202,14 +1258,14 @@ class AirFinnedGasCooler:
             icrit = int(data.icrit) if (getattr(data, "icrit", 0) and 0 < getattr(data, "icrit", 0) < T.size - 1) else None
             if icrit is not None and not (0 <= icrit < T.size):
                 icrit = None
-            return {
-                "T_C": T - 273.15,
-                "P_bar": P / 1e5,
-                "T_crit_C": float(T[icrit] - 273.15) if icrit is not None else None,
-                "P_crit_bar": float(P[icrit] / 1e5) if icrit is not None else None,
-                "cricondentherm_C": float(T.max() - 273.15),
-                "cricondenbar_bar": float(P.max() / 1e5),
-            }
+            return PhaseEnvelopeData(
+                T_C=T - 273.15,
+                P_bar=P / 1e5,
+                T_crit_C=float(T[icrit] - 273.15) if icrit is not None else None,
+                P_crit_bar=float(P[icrit] / 1e5) if icrit is not None else None,
+                cricondentherm_C=float(T.max() - 273.15),
+                cricondenbar_bar=float(P.max() / 1e5),
+            )
         except Exception as exc:
             self._log("WARNING", "Faz zarfı oluşturulamadı.", exc)
             return None

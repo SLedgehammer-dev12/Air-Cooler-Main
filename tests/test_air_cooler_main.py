@@ -1263,6 +1263,66 @@ class ExportSectionsTests(unittest.TestCase):
         self.assertIn("L-Foot / Double L", all_text)
 
 
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class DataclassResultTests(unittest.TestCase):
+    GEOM = {
+        "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+        "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+        "fin_height": 0.0159, "fin_thickness": 0.0004,
+        "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+        "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+        "fan_efficiency": 0.65, "fan_diameter": 2.44, "n_fans": 1, "fan_rpm": 350,
+    }
+    KOMP = {
+        "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+        "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+        "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+    }
+
+    def test_segments_are_dataclass_with_dual_access(self):
+        from dataclasses import is_dataclass
+        from air_cooler_main_core import HeatExchangerSegment
+        cooler = AirFinnedGasCooler(dict(self.KOMP), "PR", "bar(a)")
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), dict(self.GEOM)
+        )
+        self.assertTrue(res["segmental_applied"])
+        for s in res["segments"]:
+            self.assertTrue(is_dataclass(s))
+            self.assertIsInstance(s, HeatExchangerSegment)
+            self.assertEqual(s["T_in_C"], s.T_in_C)
+            self.assertEqual(s["two_phase"], s.two_phase)
+            self.assertEqual(s.get("index"), s.index)
+
+    def test_phase_envelope_returns_dataclass(self):
+        from dataclasses import is_dataclass
+        from air_cooler_main_core import PhaseEnvelopeData
+        komp = {"METHANE": {"yuzde": 100.0, "tip": "Molar"}}
+        cooler = AirFinnedGasCooler(komp, engine="CoolProp", eos="HEOS", raw_p_unit="bar(a)")
+        env = cooler.get_phase_envelope()
+        if env is None:
+            self.skipTest("Faz zarfı bu ortamda oluşturulamadı")
+        self.assertIsInstance(env, PhaseEnvelopeData)
+        self.assertTrue(is_dataclass(env))
+        self.assertEqual(env["cricondentherm_C"], env.cricondentherm_C)
+
+    def test_segments_json_serializable_via_app_helper(self):
+        from air_cooler_main_app import _json_safe
+        import json
+        cooler = AirFinnedGasCooler(dict(self.KOMP), "PR", "bar(a)")
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), dict(self.GEOM)
+        )
+        safe = _json_safe(res["segments"])
+        self.assertIsInstance(safe, list)
+        self.assertIsInstance(safe[0], dict)
+        json.dumps(safe)
+
+
 if __name__ == "__main__":
     unittest.main()
 
