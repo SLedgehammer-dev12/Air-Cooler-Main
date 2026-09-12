@@ -82,8 +82,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "Air Cooler Main",
         "CFBundleDisplayName": "Air Cooler Main",
-        "CFBundleVersion": "4.0.0",
-        "CFBundleShortVersionString": "4.0.0",
+        "CFBundleVersion": "5.0.0",
+        "CFBundleShortVersionString": "5.0.0",
         "CFBundleExecutable": "AirCooler_Main",
         "NSHighResolutionCapable": True,
         "NSRequiresAquaSystemAppearance": False,

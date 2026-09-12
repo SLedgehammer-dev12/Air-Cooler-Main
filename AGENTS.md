@@ -72,6 +72,14 @@ Two-level selection: **Engine** (CoolProp / neqsim) → **EOS** filtered by engi
 2. **Yoğuşmada PT-flash çökmesi** — `T_sat_liq = T_bubble + 0.1` ve `T_sat_vap = T_dew - 0.1` işaretleri iki-faz bölgesine düşüyordu (CoolProp "gaseous density" hatası). İşaretler düzeltildi; ayrıca `get_mixture_transport_properties` iki-faz P-T noktalarında kalite-ağırlıklı yoğunluk/cp fallback'ine sahip.
 3. **`has_neqsim()` negatif önbellekleme yoktu** — Java yokken her çağrı neqsim import'unu yeniden deniyordu (~0.44s + hata çıktısı), test paketini 100s+ yapıyordu. `_IMPORT_ATTEMPTED` flag eklendi.
 
+## Known Bugs Fixed & Architecture Refactor (2026-09-12 — Post-Review)
+1. **CRITICAL (P0): Enthalpy/Flash-Based Rating Engine** — `hesapla_degerlendirme_rating` tek sabit cp ve ε-NTU ile çözülüyordu; yoğuşmalı akışkanlarda latent ısıyı duyulur ısı gibi bölerek eksi/akıldışı sıcaklıklar üretiyordu. Artık $Q$ üzerinde Brent kök-bulucu (`scipy.optimize.brentq`), $(T, H)$ soğuma profili interpolasyonu ve $Q \to h_{out} \to \text{flash} \to T_{out}, x_{out} \to U \to \text{yeni } Q$ mimarisiyle çalışır.
+2. **CRITICAL (P1): Segmental Çapraz Akış Ft Düzeltmesi** — `_compute_segment_areas` içinde $F_t$ faktörü 1.0 varsayılıyordu. Artık her segment için `ht.air_cooler.Ft_aircooler` ile yerel çapraz akış faktörü hesaplanır (izotermal yoğuşmada $F_t = 1.0$).
+3. **Süreç Tarafı Birleşik Basınç Kaybı Modeli** — Sizing ve rating'de kollektör, nozül ve boru dönüş kayıpları ($K_{minor} = 1.5(N-1) + K_{header} + K_{nozzle}$) sürtünme kaybına eklenerek birleştirildi; `gas_dP_bar`, `gas_dP_friction_bar`, `gas_dP_minor_bar` olarak raporlanır.
+4. **NeqSim PQ-Flash Fallback Şeffaflığı** — NeqSim motorunda çiğ/kabarcık noktası CoolProp HEOS'a düştüğünde arayüzde ve metadatada `saturation_fallback_applied` uyarısı verilir.
+5. **Sıvı Taşıma Özellikleri** — `get_mixture_transport_properties` sıvı fazda Wilke/Mason-Saxena gaz formülleri yerine logaritmik viskozite ($\ln \mu = \sum y_i \ln \mu_i$) ve sıvıya uygun fallback ($1.0 \times 10^{-4}$ Pa·s) kullanır.
+6. **Yazılım & UI Hataları** — ASME kontrolünde mutlak Pa dönüşümü, JSON serileştirmede Pint Quantity ve Dataclass özyinelemeli temizleme, proje yüklemede `ui_p_u`/`ui_t_u`/`ui_flow_u` eşleştirmesi, ana raporda multi-model şema ayrımı, API 661 "screening checks" terminolojisi düzeltildi.
+
 ## v5.0.0 New Features
 - **Wilke / Mason-Saxena karışım μ & k** — `get_mixture_transport_properties` doğrusal toplama yerine Wilke viskozite + Mason-Saxena iletkenlik korelasyonları kullanır (tek bileşende saf değer, hata durumunda doğrusal fallback).
 - **Rouhani-Axelsson void fraction** — yoğuşmalı karışım yoğunluğu slip-ratio modeliyle (`_mixture_surface_tension` ile yüzey gerilimi), homojen modele düşer.
@@ -84,6 +92,7 @@ Two-level selection: **Engine** (CoolProp / neqsim) → **EOS** filtered by engi
 - **PT Faz Zarfı** — `get_phase_envelope()` (CoolProp HEOS/PR/SRK + tek bileşen), kritik/cricondentherm/cricondenbar + giriş/çıkış noktası işaretli Plotly grafiği.
 - **Grafikler** — `draw_temperature_profile` (proses+hava T vs alan) ve `draw_bundle_layout` (boru demeti kesiti).
 - **API 661 Data Sheet bölümleri** — PDF/Excel'e Proses / Performans / Boru & Kanat Geometrisi / Mekanik & Malzeme bölümleri.
+- **Akıllı EOS Öneri Sistemi** — `recommend_eos()`: Girilen akışkan kompozisyonu (saf akışkan, ıslak gaz, LPG/NGL yoğuşma, asit gaz, yüksek basınç) ve basınca göre en uygun EOS (HEOS, GERG-2008, CPA-SRK, PR-volcor, PR) önerir; gerekçesini açıklar ve arayüzde tek tıkla uygulama sunar.
 
 ## v4.0.0 New Features
 - **Gnielinski correlation** replaces Dittus-Boelter for tube-side Nusselt (Re>2300)

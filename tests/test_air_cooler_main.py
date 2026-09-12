@@ -19,6 +19,7 @@ try:
         COOLPROP_COMPONENTS,
         Q_,
         resolve_fluid_name,
+        recommend_eos,
     )
 except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
     IMPORT_ERROR = exc
@@ -1486,3 +1487,372 @@ class SaveLoadTests(unittest.TestCase):
         self.assertEqual(restored["adv_tube_od"], 25.4)
         self.assertEqual(restored["r_od"], 25.4)
         self.assertEqual(restored["r_fan_flow"], 150000.0)
+        self.assertEqual(restored["ui_p_u"], "bar(a)")
+        self.assertEqual(restored["ui_t_u"], "°C")
+        self.assertEqual(restored["ui_flow_u"], "Sm3/h")
+
+    def test_load_project_file_restores_custom_units(self):
+        data = {
+            "version": "2.0",
+            "inputs": {
+                "units": {
+                    "p_unit": "psi(g)",
+                    "t_unit": "°F",
+                    "flow_u": "kg/h",
+                    "adv_p_u": "kPa",
+                    "adv_t_u": "K",
+                    "adv_flow_u": "kg/s"
+                }
+            }
+        }
+        state = {}
+        load_project_file(data, state=state)
+        self.assertEqual(state["ui_p_u"], "psi(g)")
+        self.assertEqual(state["ui_t_u"], "°F")
+        self.assertEqual(state["ui_flow_u"], "kg/h")
+        self.assertEqual(state["adv_p_u"], "kPa")
+        self.assertEqual(state["adv_t_u"], "K")
+        self.assertEqual(state["adv_flow_u"], "kg/s")
+
+    def test_json_safe_handles_pint_and_dataclass(self):
+        import numpy as np
+        from air_cooler_main_core import HeatExchangerSegment, Q_
+        from air_cooler_main_app import _json_safe
+
+        seg = HeatExchangerSegment(
+            index=0, T_in_C=100.0, T_out_C=80.0,
+            T_air_in_C=25.0, T_air_out_C=35.0,
+            Q_kW=50.0, U_W_m2K=150.0, h_inside_W_m2K=500.0,
+            area_m2=12.5, two_phase=False
+        )
+        sample = {
+            "q_val": Q_(15.5, "MW"),
+            "segment": seg,
+            "arr": np.array([1.0, 2.0, 3.0]),
+            "float_num": np.float64(4.5),
+        }
+        safe = _json_safe(sample)
+        dumped = json.dumps(safe)
+        loaded = json.loads(dumped)
+        self.assertIn("q_val", loaded)
+        self.assertEqual(loaded["segment"]["index"], 0)
+        self.assertEqual(loaded["arr"], [1.0, 2.0, 3.0])
+        self.assertAlmostEqual(loaded["float_num"], 4.5)
+
+    def test_save_project_with_pint_and_dataclass(self):
+        import tempfile
+        from air_cooler_export import save_project
+        from air_cooler_main_core import HeatExchangerSegment, Q_
+
+        seg = HeatExchangerSegment(
+            index=1, T_in_C=90.0, T_out_C=70.0,
+            T_air_in_C=25.0, T_air_out_C=40.0,
+            Q_kW=100.0, U_W_m2K=200.0, h_inside_W_m2K=600.0,
+            area_m2=20.0, two_phase=True
+        )
+        inputs = {"p_in": Q_(60.0, "bar")}
+        results = {"q_g": Q_(1.2, "MW"), "segments": [seg]}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("air_cooler_export._projects_dir", return_value=Path(tmpdir)):
+                path = save_project("Test_Project_Serialization", "Testing Pint and Dataclass", inputs, results, saved_by="tester")
+                self.assertTrue(Path(path).exists())
+                with open(path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                self.assertEqual(loaded["project_name"], "Test_Project_Serialization")
+                self.assertIn("results", loaded)
+                self.assertIn("segments", loaded["results"])
+                self.assertEqual(loaded["results"]["segments"][0]["index"], 1)
+
+    def test_asme_pressure_unit_conversion(self):
+        cooler = AirFinnedGasCooler(
+            {"METHANE": {"yuzde": 100.0, "tip": "Molar"}},
+            engine="CoolProp",
+            eos="HEOS",
+            raw_p_unit="psi(g)",
+        )
+        p_in_q = Q_(1000.0, "psi")
+        t_in_q = Q_(100.0, "degC")
+        p_si, _ = cooler._birim_cevir_P_T(p_in_q, t_in_q)
+        expected_pa = Q_(1000.0, "psi").to("pascal").m + 101325.0
+        self.assertAlmostEqual(p_si, expected_pa, places=1)
+        self.assertLess(p_si, 1e8)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class Phase2ConsistencyTests(unittest.TestCase):
+    GEOM = {
+        "tube_rows": 4, "tube_passes": 4, "tubes_per_row": 24,
+        "tube_length": 6.0, "tube_od": 0.0254, "tube_thickness": 0.00211,
+        "fin_height": 0.0159, "fin_thickness": 0.0004,
+        "fin_density": 394, "pitch": 0.0635, "angle": 30.0,
+        "tube_k": 50.0, "fin_k": 205.0, "fouling_in": 0.000176, "fouling_out": 0.000088,
+        "fan_efficiency": 0.65, "fan_diameter": 2.44, "n_fans": 1, "fan_rpm": 350,
+        "header_type": "Tapalı Kollektör (Plug)",
+    }
+
+    def test_segmental_ft_applied_and_within_bounds(self):
+        komp = {
+            "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+            "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), self.GEOM
+        )
+        self.assertTrue(res["segmental_applied"])
+        self.assertGreater(len(res["segments"]), 0)
+        for seg in res["segments"]:
+            self.assertIn("Ft", seg)
+            self.assertGreater(seg["Ft"], 0.0)
+            self.assertLessEqual(seg["Ft"], 1.0)
+            self.assertGreater(seg["area_m2"], 0.0)
+
+    def test_process_dp_consistency_and_breakdown(self):
+        komp = {
+            "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+            "PROPANE": {"yuzde": 5.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        res = cooler.hesapla_detayli_dizayn(
+            15.0, "Sm3/h", Q_(60.0, "bar"), Q_(59.0, "bar"),
+            Q_(100.0, "degC"), Q_(40.0, "degC"),
+            Q_(25.0, "degC"), Q_(45.0, "degC"), self.GEOM
+        )
+        self.assertAlmostEqual(res["gas_dP_bar"], res["gas_dP_segmental_bar"], places=6)
+        self.assertGreater(res["gas_dP_friction_bar"], 0.0)
+        self.assertGreater(res["gas_dP_minor_bar"], 0.0)
+        total_sum = res["gas_dP_friction_bar"] + res["gas_dP_minor_bar"]
+        self.assertAlmostEqual(res["gas_dP_bar"], total_sum, places=6)
+
+    def test_liquid_transport_properties_uses_liquid_mixing(self):
+        komp = {
+            "PROPANE": {"yuzde": 70.0, "tip": "Molar"},
+            "N-BUTANE": {"yuzde": 30.0, "tip": "Molar"},
+        }
+        cooler = AirFinnedGasCooler(komp, "PR", "bar(a)")
+        props = cooler.get_mixture_transport_properties(10e5, 230.0)
+        self.assertGreater(props["density"], 400.0)
+        self.assertGreater(props["viscosity"], 5e-5)
+
+    def test_neqsim_saturation_fallback_metadata(self):
+        cooler = AirFinnedGasCooler(
+            {"METHANE": {"yuzde": 100.0, "tip": "Molar"}},
+            engine="neqsim",
+            eos="GERG-2008",
+            raw_p_unit="bar(a)"
+        )
+        real_init = cooler._init_abstract_state
+        class DummyNeqSim:
+            def update(self, itype, p, q):
+                raise NotImplementedError("NeqSimFluid only supports PT_INPUTS")
+
+        def side_effect(backend=None):
+            if backend != "HEOS":
+                return DummyNeqSim()
+            return real_init("HEOS")
+
+        with patch.object(cooler, "_init_abstract_state", side_effect=side_effect):
+            sat = cooler._get_saturation_properties(10e5)
+            self.assertIsNotNone(sat)
+            self.assertEqual(sat["backend"], "HEOS")
+            self.assertTrue(cooler.saturation_fallback_applied)
+            self.assertIn("CoolProp/HEOS", cooler.saturation_note)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class Phase3RatingEnthalpyTests(unittest.TestCase):
+    def setUp(self):
+        self.cond_komp = {
+            "PROPANE": {"yuzde": 70.0, "tip": "Molar"},
+            "N-BUTANE": {"yuzde": 30.0, "tip": "Molar"},
+        }
+        self.geom = {
+            "tube_rows": 4,
+            "tube_passes": 2,
+            "tubes_per_row": 24,
+            "tube_length": 6.0,
+            "tube_od": 0.0254,
+            "tube_thickness": 0.00211,
+            "fin_height": 0.0159,
+            "fin_thickness": 0.0004,
+            "fin_density": 394,
+            "pitch": 0.0635,
+            "angle": 30.0,
+            "tube_k": 50.0,
+            "fin_k": 205.0,
+            "fouling_in": 0.000176,
+            "fouling_out": 0.000088,
+            "fan_efficiency": 0.65,
+        }
+
+    def test_rating_condensing_hydrocarbon_physical_temperature(self):
+        cooler = AirFinnedGasCooler(self.cond_komp, "PR", "bar(a)")
+        res = cooler.hesapla_degerlendirme_rating(
+            m_dot_val=1.0,
+            m_dot_unit="kg/s",
+            P_in_Q=Q_(10.0, "bar"),
+            P_out_Q=Q_(9.8, "bar"),
+            T_in_Q=Q_(70.0, "degC"),
+            air_in_Q=Q_(25.0, "degC"),
+            V_air_m3_h=80000.0,
+            geom_params=self.geom
+        )
+        self.assertTrue(res["condensation_applied"])
+        self.assertGreater(res["Q_kW"], 50.0)
+        # T_gas_out must be physical (above air temp, below inlet, near saturation glide)
+        self.assertGreater(res["T_gas_out_C"], 25.0)
+        self.assertLess(res["T_gas_out_C"], 65.0)
+        # Quality must be between 0 and 1
+        self.assertGreater(res["gas_out_quality"], 0.0)
+        self.assertLess(res["gas_out_quality"], 1.0)
+        self.assertIn("Yoğuşma", res["gas_out_phase"])
+        # dP breakdown
+        self.assertGreater(res["gas_dP_bar"], 0.0)
+        self.assertGreater(res["gas_dP_friction_bar"], 0.0)
+        self.assertGreater(res["gas_dP_minor_bar"], 0.0)
+
+    def test_rating_energy_balance_enthalpy_matches_duty(self):
+        cooler = AirFinnedGasCooler(self.cond_komp, "PR", "bar(a)")
+        m_dot_val = 0.8
+        res = cooler.hesapla_degerlendirme_rating(
+            m_dot_val=m_dot_val,
+            m_dot_unit="kg/s",
+            P_in_Q=Q_(10.0, "bar"),
+            P_out_Q=Q_(9.8, "bar"),
+            T_in_Q=Q_(70.0, "degC"),
+            air_in_Q=Q_(25.0, "degC"),
+            V_air_m3_h=80000.0,
+            geom_params=self.geom
+        )
+        # Check air energy balance: Q = m_dot_air * Cp_air * delta_T_air
+        air_in_K = 25.0 + 273.15
+        rho_air = 101325.0 / (287.05 * air_in_K)
+        m_dot_air = (80000.0 / 3600.0) * rho_air
+        delta_T_air = res["T_air_out_C"] - 25.0
+        Q_air_kW = (m_dot_air * 1007.0 * delta_T_air) / 1000.0
+        self.assertAlmostEqual(res["Q_kW"], Q_air_kW, places=1)
+
+    def test_rating_oversized_exchanger_pinch_limit(self):
+        cooler = AirFinnedGasCooler(self.cond_komp, "PR", "bar(a)")
+        res = cooler.hesapla_degerlendirme_rating(
+            m_dot_val=0.001,
+            m_dot_unit="kg/s",
+            P_in_Q=Q_(10.0, "bar"),
+            P_out_Q=Q_(9.8, "bar"),
+            T_in_Q=Q_(70.0, "degC"),
+            air_in_Q=Q_(25.0, "degC"),
+            V_air_m3_h=80000.0,
+            geom_params=self.geom
+        )
+        self.assertAlmostEqual(res["effectiveness"], 1.0, places=2)
+        self.assertAlmostEqual(res["T_gas_out_C"], 25.0, delta=1.0)
+
+    def test_rating_zero_duty_when_inlet_cooler_than_air(self):
+        cooler = AirFinnedGasCooler(self.cond_komp, "PR", "bar(a)")
+        res = cooler.hesapla_degerlendirme_rating(
+            m_dot_val=1.0,
+            m_dot_unit="kg/s",
+            P_in_Q=Q_(10.0, "bar"),
+            P_out_Q=Q_(9.8, "bar"),
+            T_in_Q=Q_(20.0, "degC"),
+            air_in_Q=Q_(25.0, "degC"),
+            V_air_m3_h=80000.0,
+            geom_params=self.geom
+        )
+        self.assertEqual(res["Q_kW"], 0.0)
+        self.assertEqual(res["effectiveness"], 0.0)
+
+
+@unittest.skipIf(IMPORT_ERROR is not None, f"Bağımlılıklar eksik: {IMPORT_ERROR}")
+class EOSRecommendationTests(unittest.TestCase):
+    def test_recommend_empty_composition(self):
+        rec = recommend_eos({})
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["recommended_eos"], "PR")
+        self.assertEqual(rec["fluid_type"], "genel")
+
+    def test_recommend_pure_fluid(self):
+        # Pure propane
+        komp = {"PROPANE": {"yuzde": 100.0, "tip": "Molar"}}
+        rec = recommend_eos(komp, P_bar=10.0)
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["recommended_eos"], "HEOS")
+        self.assertEqual(rec["fluid_type"], "saf_akiskan")
+        self.assertIn("HEOS", rec["recommended_label"])
+        self.assertIn("Gold Standard", rec["badge"])
+
+    def test_recommend_wet_gas(self):
+        # Wet gas with water
+        komp = {
+            "METHANE": {"yuzde": 85.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+            "WATER": {"yuzde": 5.0, "tip": "Molar"},
+        }
+        rec = recommend_eos(komp, P_bar=30.0, current_engine="🔥 CoolProp")
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["fluid_type"], "islak_gaz")
+        self.assertEqual(rec["recommended_eos"], "HEOS")
+
+        rec_neqsim = recommend_eos(komp, P_bar=30.0, current_engine="🌍 neqsim")
+        self.assertEqual(rec_neqsim["recommended_eos"], "CPA-SRK")
+
+    def test_recommend_high_pressure(self):
+        # High pressure natural gas
+        komp = {
+            "METHANE": {"yuzde": 90.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 10.0, "tip": "Molar"},
+        }
+        rec_hp = recommend_eos(komp, P_bar=110.0, current_engine="🌍 neqsim")
+        self.assertIsNotNone(rec_hp)
+        self.assertEqual(rec_hp["fluid_type"], "yuksek_basinc")
+        self.assertEqual(rec_hp["recommended_eos"], "BWRS")
+
+        rec_hp_cp = recommend_eos(komp, P_bar=85.0, current_engine="🔥 CoolProp")
+        self.assertEqual(rec_hp_cp["recommended_eos"], "HEOS")
+
+    def test_recommend_high_co2_acid_gas(self):
+        # Acid gas with 25% CO2
+        komp = {
+            "METHANE": {"yuzde": 75.0, "tip": "Molar"},
+            "CO2": {"yuzde": 25.0, "tip": "Molar"},
+        }
+        rec = recommend_eos(komp, P_bar=40.0)
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["fluid_type"], "asit_gaz")
+
+    def test_recommend_lpg_ngl(self):
+        # LPG mixture 70/30 C3/C4
+        komp = {
+            "PROPANE": {"yuzde": 70.0, "tip": "Molar"},
+            "N-BUTANE": {"yuzde": 30.0, "tip": "Molar"},
+        }
+        rec = recommend_eos(komp, P_bar=12.0, current_engine="🔥 CoolProp")
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["fluid_type"], "lpg_ngl")
+        self.assertEqual(rec["recommended_eos"], "PR")
+
+        rec_neqsim = recommend_eos(komp, P_bar=12.0, current_engine="🌍 neqsim")
+        self.assertEqual(rec_neqsim["recommended_eos"], "PR-volcor")
+
+    def test_recommend_pipeline_gas(self):
+        # Dry pipeline gas 95% CH4
+        komp = {
+            "METHANE": {"yuzde": 95.0, "tip": "Molar"},
+            "ETHANE": {"yuzde": 4.0, "tip": "Molar"},
+            "NITROGEN": {"yuzde": 1.0, "tip": "Molar"},
+        }
+        rec = recommend_eos(komp, P_bar=50.0, current_engine="🔥 CoolProp")
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec["fluid_type"], "dogal_gaz")
+        self.assertEqual(rec["recommended_eos"], "HEOS")
+
+        rec_neqsim = recommend_eos(komp, P_bar=50.0, current_engine="🌍 neqsim")
+        self.assertEqual(rec_neqsim["recommended_eos"], "GERG-2008")
+
+
+

@@ -31,6 +31,7 @@ from air_cooler_main_core import (
     initialize_users_db,
     authenticate_user,
     assess_eos_risk,
+    recommend_eos,
     get_fallback_eos,
     EOS_RISK_RULES,
     fin_type_temperature_limit_C,
@@ -734,6 +735,26 @@ def draw_advanced_design():
             adv_eos_label = st.selectbox("EOS", adv_eos_options, key="adv_eos_label")
             st.session_state._adv_eos_key = f"{adv_engine}:{adv_eos_label}"
 
+            _rec_adv = recommend_eos(
+                st.session_state.get("kompozisyon", {}),
+                P_bar=st.session_state.get("adv_p_in", 0.0),
+                current_engine=adv_engine,
+            )
+            if _rec_adv and st.session_state.get("kompozisyon"):
+                _is_ideal = (
+                    adv_engine == _rec_adv["recommended_engine"]
+                    and adv_eos_label == _rec_adv["recommended_label"]
+                )
+                if _is_ideal:
+                    st.caption(f"💡 *Öneri:* `{adv_eos_label}` ({_rec_adv['badge']}) — Kompozisyon ile uyumlu.")
+                else:
+                    st.caption(f"💡 *Öneri:* `{_rec_adv['recommended_label']}` ({_rec_adv['badge']})")
+                    if st.button("🔄 Önerilene Geç", key="btn_quick_switch_rec_adv", help=_rec_adv["reason"]):
+                        st.session_state.adv_engine = _rec_adv["recommended_engine"]
+                        st.session_state.adv_eos_label = _rec_adv["recommended_label"]
+                        st.session_state.eos_warning_accepted = False
+                        st.rerun()
+
         # ── EOS Risk Uyarısı ──
         _adv_eng_backend, _adv_eos_val = resolve_engine_eos(
             st.session_state.adv_engine, st.session_state.adv_eos_label
@@ -1016,6 +1037,8 @@ def draw_advanced_design():
                     geom_params=geom_params
                 )
                 
+                res["time"] = datetime.now().strftime("%H:%M:%S")
+                res["calc_type"] = "detailed_sizing"
                 st.session_state.last_res = res.copy()
                 for k in ("bolgeler",):
                     if k in res:
@@ -1050,28 +1073,32 @@ def draw_advanced_design():
                         st.write(f"**Fan Çıkış Hızı:** {res['v_fan_m_s']:.2f} m/s")
                         st.write(f"**Boru İçi Gaz Akış Hızı:** {res['gas_velocity_m_s']:.2f} m/s")
                         st.write(f"**Boru İçi Gaz Reynolds:** {res['gas_Re']:.0f}")
-                        st.write(f"**Gaz Tarafı Basınç Düşümü (Friction):** {res['gas_dP_bar']:.4f} bar")
-                        
-                if res['gas_velocity_m_s'] > 20.0:
+                        if res.get('gas_dP_minor_bar'):
+                            st.write(f"**Gaz Tarafı Toplam Basınç Düşümü:** {res['gas_dP_bar']:.4f} bar (Sürtünme: {res.get('gas_dP_friction_bar', 0.0):.4f} bar, Kollektör/Nozül: {res.get('gas_dP_minor_bar', 0.0):.4f} bar)")
+                        else:
+                            st.write(f"**Gaz Tarafı Toplam Basınç Düşümü:** {res['gas_dP_bar']:.4f} bar")
+
+                if res.get('saturation_fallback_applied'):
+                    st.info(f"ℹ️ **Termodinamik Model Bildirimi:** {res.get('saturation_note')}")
                     st.warning("⚠️ **Gürültü ve Erozyon Riski!** Boru içi gaz hızı 20 m/s sınırının üzerinde. Akış alanını artırmak için paralel tüp sayısını artırmayı düşünebilirsiniz.")
                 elif res['gas_velocity_m_s'] < 1.0:
                     st.warning("⚠️ **Kirlenme (Fouling) Riski!** Boru içi akış hızı 1.0 m/s sınırının altında. Geçiş sayısını artırarak hızı yükseltmeyi düşünebilirsiniz.")
                 else:
-                    st.success("✅ **Hız Sınırları Uyumlu:** Gaz hızları API 661 erozyon ve kirlenme limitleri içerisinde.")
+                    st.success("✅ **Hız Sınırları:** Gaz hızları API 661 erozyon ve kirlenme ön-kontrol sınırları içerisinde.")
                     
-                with st.expander("📋 API 661 Uyum Denetimi", expanded=False):
+                with st.expander("📋 API 661 Ön-Tasarım Kontrolleri (Screening Checks)", expanded=False):
                     tube_od_mm = float(tube_od)
                     if tube_od_mm < 25.4:
                         st.warning(f"⚠️ **Boru Dış Çapı:** {tube_od_mm:.1f} mm < 25.4 mm. API 661 rafineri servisi için minimum 1 inç (25.4 mm) önerir.")
                     else:
-                        st.info(f"✅ **Boru Dış Çapı:** {tube_od_mm:.1f} mm ≥ 25.4 mm. API 661 uyumlu.")
+                        st.info(f"✅ **Boru Dış Çapı:** {tube_od_mm:.1f} mm ≥ 25.4 mm. API 661 asgari kriterini sağlıyor.")
                     
                     tube_thick_mm = float(tube_thick)
                     min_wall = 2.11 if "Karbon" in tube_mat else 1.65
                     if tube_thick_mm < min_wall:
                         st.warning(f"⚠️ **Boru Duvar Kalınlığı:** {tube_thick_mm:.2f} mm < {min_wall:.2f} mm. API 661 minimum {min_wall:.2f} mm önerir ({'CS 14 BWG' if min_wall > 2 else 'Alaşım'} için).")
                     else:
-                        st.info(f"✅ **Boru Duvar Kalınlığı:** {tube_thick_mm:.2f} mm ≥ {min_wall:.2f} mm. API 661 uyumlu.")
+                        st.info(f"✅ **Boru Duvar Kalınlığı:** {tube_thick_mm:.2f} mm ≥ {min_wall:.2f} mm. API 661 asgari kriterini sağlıyor.")
                     
                     v_tip = res.get('fan_tip_speed_m_s', 0.0)
                     if v_tip > 0:
@@ -1080,7 +1107,7 @@ def draw_advanced_design():
                         elif v_tip > 50.0:
                             st.warning(f"⚠️ **Fan Kanat Uç Hızı (Tip Speed):** {v_tip:.1f} m/s > 50 m/s. Düşük gürültü uygulamaları için maksimum 50 m/s önerilir.")
                         else:
-                            st.info(f"✅ **Fan Kanat Uç Hızı (Tip Speed):** {v_tip:.1f} m/s ≤ 50 m/s. API 661 uyumlu.")
+                            st.info(f"✅ **Fan Kanat Uç Hızı (Tip Speed):** {v_tip:.1f} m/s ≤ 50 m/s. API 661 asgari kriterini sağlıyor.")
                     else:
                         st.info("ℹ️ **Fan Kanat Uç Hızı:** Fan devri (RPM) girilmeden hesaplanamaz.")
 
@@ -1095,11 +1122,13 @@ def draw_advanced_design():
                         if t_in_c > fin_limit_c:
                             st.warning(f"⚠️ **Kanat Tipi Sıcaklık Limiti:** Proses giriş sıcaklığı {t_in_c:.1f} °C > {fin_limit_c:.0f} °C ({fin_type} için API 661 limiti). Daha yüksek sıcaklık sınıfı kanat tipi seçin (ör. Embedded/Extruded).")
                         else:
-                            st.info(f"✅ **Kanat Tipi Sıcaklık Limiti:** {t_in_c:.1f} °C ≤ {fin_limit_c:.0f} °C ({fin_type}). API 661 uyumlu.")
+                            st.info(f"✅ **Kanat Tipi Sıcaklık Limiti:** {t_in_c:.1f} °C ≤ {fin_limit_c:.0f} °C ({fin_type}). API 661 asgari kriterini sağlıyor.")
 
                     grade = TUBE_MATERIAL_GRADES.get(asme_grade)
                     if grade:
-                        design_P_pa = max(adv_p_in, adv_p_out) * 1e5 * 1.1
+                        p_in_pa, _ = cooler._birim_cevir_P_T(p_in_q, t_in_q)
+                        p_out_pa, _ = cooler._birim_cevir_P_T(p_out_q, t_out_q)
+                        design_P_pa = max(p_in_pa, p_out_pa) * 1.1
                         S_pa = grade["S_MPa"] * 1e6
                         E = grade["E"]
                         CA_m = float(corr_allow) / 1000.0
@@ -1123,6 +1152,7 @@ def draw_advanced_design():
                                 "Q (kW)": f"{s['Q_kW']:.2f}",
                                 "U (W/m²K)": f"{s['U_W_m2K']:.2f}",
                                 "hi (W/m²K)": f"{s['h_inside_W_m2K']:.1f}",
+                                "Ft": f"{s.get('Ft', 1.0):.3f}",
                                 "Alan (m²)": f"{s['area_m2']:.2f}",
                             }
                             for s in res["segments"]
@@ -1245,6 +1275,8 @@ def draw_advanced_design():
                     geom_params=geom_params
                 )
                 
+                res["time"] = datetime.now().strftime("%H:%M:%S")
+                res["calc_type"] = "rating"
                 st.session_state.last_res = res.copy()
                 st.success("✅ Eşanjör Performans Değerlendirmesi Tamamlandı!")
                 
@@ -1262,13 +1294,42 @@ def draw_advanced_design():
                         st.write(f"**Toplam U Katsayısı:** {res['U_W_m2K']:.2f} W/(m²·K)")
                         st.write(f"**Boru İçi Film Katsayısı (hi):** {res['h_inside_W_m2K']:.2f} W/(m²·K)")
                         st.write(f"**Dış Film Katsayısı (ho):** {res['h_outside_actual_W_m2K']:.2f} W/(m²·K)")
+                        if "margin_pct" in res and abs(res["margin_pct"]) > 0.01:
+                            st.write(f"**Tasarım Marjı (Over-design):** {res['margin_pct']:+.2f} %")
                 with rc_5:
                     with st.container(border=True):
                         st.markdown("**⚙️ Basınç Kayıpları & Akış Limiti**")
                         st.write(f"**Boru İçi Hız:** {res['gas_velocity_m_s']:.2f} m/s")
-                        st.write(f"**Gaz Tarafı Basınç Düşümü (Friction):** {res['gas_dP_bar']:.4f} bar")
+                        st.write(f"**Gaz Tarafı Toplam Basınç Düşümü:** {res['gas_dP_bar']:.4f} bar")
+                        if "gas_dP_friction_bar" in res and "gas_dP_minor_bar" in res:
+                            st.caption(f"Sürtünme: {res['gas_dP_friction_bar']:.4f} bar | Kollektör/Nozül: {res['gas_dP_minor_bar']:.4f} bar")
                         st.write(f"**Hava Tarafı Basınç Düşümü (ESDU):** {res['dP_air_Pa']:.2f} Pa")
                         st.write(f"**Çıkış Gaz Faz Durumu:** **{res['gas_out_phase']}**")
+                        if "gas_out_quality" in res and res.get("condensation_applied"):
+                            st.write(f"**Çıkış Buhar Kalitesi (x):** {res['gas_out_quality']:.3f}")
+
+                if res.get('segmental_applied') and res.get('segments'):
+                    with st.expander("📊 Segmental (Zone-by-Zone) Isı & Alan Profili (12 Segment)", expanded=False):
+                        st.dataframe(
+                            pd.DataFrame([
+                                {
+                                    "Segment": s["segment_idx"],
+                                    "T_in (°C)": f"{s['T_in_C']:.1f}",
+                                    "T_out (°C)": f"{s['T_out_C']:.1f}",
+                                    "T_air_in (°C)": f"{s['T_air_in_C']:.1f}",
+                                    "T_air_out (°C)": f"{s['T_air_out_C']:.1f}",
+                                    "U (W/m²K)": f"{s['U_W_m2K']:.1f}",
+                                    "hi (W/m²K)": f"{s['h_inside_W_m2K']:.1f}",
+                                    "Ft": f"{s.get('Ft', 1.0):.3f}",
+                                    "Alan (m²)": f"{s['area_m2']:.2f}",
+                                    "İki Faz": "Evet" if s["is_two_phase"] else "Hayır",
+                                }
+                                for s in res["segments"]
+                            ]),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                        draw_temperature_profile(res["segments"])
 
                 with st.container(border=True):
                     st.markdown("**📥 Rapor İndir**")
@@ -1302,20 +1363,24 @@ def draw_advanced_design():
 # ═══════════════════════════════════════════════════════════
 
 def _json_safe(value):
-    """Dataclass ve numpy değerlerini JSON-serializable yapıya derinlemesine çevirir."""
+    """Dataclass, Pint Quantity ve numpy değerlerini JSON-serializable yapıya derinlemesine çevirir."""
     import dataclasses
     import numpy as np
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return _json_safe(dataclasses.asdict(value))
+    if hasattr(value, "magnitude") and hasattr(value, "units"):
+        return {"magnitude": float(value.magnitude), "unit": str(value.units)}
     if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
+        return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
     if isinstance(value, np.ndarray):
         return _json_safe(value.tolist())
-    if isinstance(value, np.generic):
+    if isinstance(value, (np.generic, np.number)):
         return value.item()
-    return value
+    if isinstance(value, (int, float, str, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def serialize_inputs(state=None):
@@ -1431,8 +1496,21 @@ def load_project_file(data, state=None):
     if "composition" in i:
         state["kompozisyon"] = i["composition"]
 
-    for sk, sv in i.get("units", {}).items():
+    units = i.get("units", {})
+    for sk, sv in units.items():
         state[sk] = sv
+
+    unit_key_map = {
+        "p_unit": "ui_p_u",
+        "t_unit": "ui_t_u",
+        "flow_u": "ui_flow_u",
+        "adv_p_u": "adv_p_u",
+        "adv_t_u": "adv_t_u",
+        "adv_flow_u": "adv_flow_u",
+    }
+    for orig_k, ui_k in unit_key_map.items():
+        if orig_k in units:
+            state[ui_k] = units[orig_k]
 
     qt = i.get("quick_tab", {})
     qmap = {"flow_v": "ui_flow", "p_in": "ui_p_in", "t_in": "ui_t_in",
@@ -1525,7 +1603,7 @@ def draw_main():
                 else:
                     try:
                         inputs_data = json.loads(proje_json)
-                        results_data = st.session_state.get("last_res", {})
+                        results_data = _json_safe(st.session_state.get("last_res", {}))
                         path = save_project(project_name, project_desc, inputs_data.get("inputs", inputs_data), results_data, saved_by=username)
                         st.success(f"✅ Proje kaydedildi: {Path(path).name}")
                         st.rerun()
@@ -1677,6 +1755,48 @@ def draw_main():
             else:
                 st.success(f"✅ Toplam: %100.0000 ({tip})")
 
+            # ── EOS Öneri Kartı ──
+            _p_hint = st.session_state.get("adv_p_in", st.session_state.get("ui_p_in", 0.0))
+            _rec = recommend_eos(
+                st.session_state.kompozisyon,
+                P_bar=_p_hint,
+                current_engine=st.session_state.get("adv_engine"),
+            )
+            if _rec:
+                with st.container(border=True):
+                    r_col1, r_col2 = st.columns([3.8, 1.2])
+                    with r_col1:
+                        st.markdown(
+                            f"💡 **Önerilen Termodinamik Model:** "
+                            f"`{_rec['recommended_label']}` ({_rec['recommended_engine']}) — "
+                            f"*{_rec['badge']}*"
+                        )
+                        st.caption(f"**Gerekçe:** {_rec['reason']}")
+                        if _rec.get("alternative_label"):
+                            st.caption(
+                                f"**Alternatif:** `{_rec['alternative_label']}` ({_rec['alternative_engine']}) — "
+                                f"{_rec['alternative_reason']}"
+                            )
+                    with r_col2:
+                        _curr_eng = st.session_state.get("adv_engine", "")
+                        _curr_eos = st.session_state.get("adv_eos_label", "")
+                        _is_active = (
+                            _curr_eng == _rec["recommended_engine"]
+                            and _curr_eos == _rec["recommended_label"]
+                        )
+                        if _is_active:
+                            st.success("✅ Şu an Seçili")
+                        else:
+                            if st.button("👉 Önerileni Uygula", key="btn_apply_eos_rec", use_container_width=True):
+                                st.session_state.adv_engine = _rec["recommended_engine"]
+                                st.session_state.adv_eos_label = _rec["recommended_label"]
+                                if _rec["recommended_engine"] in get_engine_keys():
+                                    st.session_state.q_engine = _rec["recommended_engine"]
+                                st.session_state.q_eos_label = _rec["recommended_label"]
+                                st.session_state.eos_warning_accepted = False
+                                st.session_state.q_eos_warning_accepted = False
+                                st.rerun()
+
         st.divider()
         st.header("2. Şema Üzerinden Veri Girişi")
         st.caption("Kartlar gas cooler çizimindeki fiziksel bölgelere göre konumlandırıldı. A1/A2 proses, B1/B2 hava, C1 ise bundle ve UA girdilerini temsil eder.")
@@ -1737,9 +1857,28 @@ def draw_main():
                 draw_station_header("C1", "Bundle / UA", "EOS seçimi ve ön boyutlandırma parametreleri", "design")
                 q_engine = st.selectbox("Termodinamik Motor", get_engine_keys(), key="q_engine")
                 q_eos_options = get_eos_options(q_engine)
-                if "q_eos_label" not in st.session_state or st.session_state.q_eos_label not in q_eos_options:
-                    st.session_state.q_eos_label = q_eos_options[0]
                 st.selectbox("EOS", q_eos_options, key="q_eos_label")
+
+                _rec_q = recommend_eos(
+                    st.session_state.get("kompozisyon", {}),
+                    P_bar=st.session_state.get("q_p_in", 0.0),
+                    current_engine=q_engine,
+                )
+                if _rec_q and st.session_state.get("kompozisyon"):
+                    _curr_q_lbl = st.session_state.get("q_eos_label", "")
+                    _is_ideal_q = (
+                        q_engine == _rec_q["recommended_engine"]
+                        and _curr_q_lbl == _rec_q["recommended_label"]
+                    )
+                    if _is_ideal_q:
+                        st.caption(f"💡 *Öneri:* `{_curr_q_lbl}` ({_rec_q['badge']}) — Kompozisyon ile uyumlu.")
+                    else:
+                        st.caption(f"💡 *Öneri:* `{_rec_q['recommended_label']}` ({_rec_q['badge']})")
+                        if st.button("🔄 Önerilene Geç", key="btn_quick_switch_rec_q", help=_rec_q["reason"]):
+                            st.session_state.q_engine = _rec_q["recommended_engine"]
+                            st.session_state.q_eos_label = _rec_q["recommended_label"]
+                            st.session_state.q_eos_warning_accepted = False
+                            st.rerun()
                 # ── EOS Risk Uyarısı (Hızlı Hesaplama) ──
                 _q_eng_backend, _q_eos_val = resolve_engine_eos(
                     st.session_state.get("q_engine", get_engine_keys()[0]),
@@ -1876,65 +2015,125 @@ def draw_main():
     with tab_report:
         result = st.session_state.get("last_res")
         if not result:
-            st.info("Lütfen Girişler sekmesinden hesaplama işlemini başlatın.", icon="ℹ️")
+            st.info("Lütfen Girişler veya Gelişmiş Boyutlandırma sekmesinden bir hesaplama işlemini başlatın.", icon="ℹ️")
         else:
-            st.header(f"✅ Rapor ({result['time']})")
-            if result["uyari"]:
+            time_str = result.get("time", "")
+            header_title = f"✅ Rapor ({time_str})" if time_str else "✅ Rapor"
+            st.header(header_title)
+
+            if result.get("uyari"):
                 st.warning(result["uyari"], icon="⚠️")
 
-            metric_col1, metric_col2, metric_col3 = st.columns(3)
-            with metric_col1:
-                st.metric("Gerçek Gaz Soğutma Yükü", f"{result['q_g'].to('MW').m:.4f} MW", border=True)
-            with metric_col2:
-                if result["q_i"] is not None:
-                    st.metric("İdeal Gaz Yükü (Referans)", f"{result['q_i'].to('MW').m:.4f} MW", border=True)
-                else:
-                    st.metric("İdeal Gaz Yükü (Referans)", "Hesaplanamadı", border=True)
-            with metric_col3:
-                if result["q_i"] is not None and abs(result["q_g"].m) > 1e-12:
-                    diff = abs(result["q_g"].m - result["q_i"].m) / abs(result["q_g"].m) * 100.0
-                    st.metric("Sapma (Gerçek vs İdeal)", f"% {diff:.2f}", border=True)
-                else:
-                    st.metric("Sapma (Gerçek vs İdeal)", "-", border=True)
+            if "q_g" in result:
+                # ── Hızlı Hesaplama Raporu ──
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                with metric_col1:
+                    st.metric("Gerçek Gaz Soğutma Yükü", f"{result['q_g'].to('MW').m:.4f} MW", border=True)
+                with metric_col2:
+                    if result.get("q_i") is not None:
+                        st.metric("İdeal Gaz Yükü (Referans)", f"{result['q_i'].to('MW').m:.4f} MW", border=True)
+                    else:
+                        st.metric("İdeal Gaz Yükü (Referans)", "Hesaplanamadı", border=True)
+                with metric_col3:
+                    if result.get("q_i") is not None and abs(result["q_g"].m) > 1e-12:
+                        diff = abs(result["q_g"].m - result["q_i"].m) / abs(result["q_g"].m) * 100.0
+                        st.metric("Sapma (Gerçek vs İdeal)", f"% {diff:.2f}", border=True)
+                    else:
+                        st.metric("Sapma (Gerçek vs İdeal)", "-", border=True)
 
-            st.divider()
-            draw_zone_analysis(result["ara"])
+                if "ara" in result:
+                    st.divider()
+                    draw_zone_analysis(result["ara"])
 
-            st.divider()
-            draw_preliminary_sizing(result["ara"])
+                    st.divider()
+                    draw_preliminary_sizing(result["ara"])
 
-            st.divider()
-            st.subheader("🔍 Detaylı Termodinamik Veriler")
-            ara = result["ara"]
-            detail_col1, detail_col2, detail_col3 = st.columns(3)
-            with detail_col1:
-                with st.container(border=True):
-                    st.markdown("**📥 Giriş Koşulları**")
-                    st.write(f"**Faz:** {ara['faz_in']}")
-                    st.write(f"**Basınç:** {ara['P_in_Pa'] / 1e5:.2f} bar(a)")
-                    st.write(f"**Sıcaklık:** {ara['T_in_K'] - 273.15:.2f} °C")
-                    st.write(f"**Yoğunluk:** {ara['rho_in']:.2f} kg/m³")
-                    st.write(f"**Sp. Entalpi:** {ara['H_in_kJ_kg']:.2f} kJ/kg")
-            with detail_col2:
-                with st.container(border=True):
-                    st.markdown("**📤 Çıkış Koşulları**")
-                    st.write(f"**Faz:** {ara['faz_out']}")
-                    st.write(f"**Basınç:** {ara['P_out_Pa'] / 1e5:.2f} bar(a)")
-                    st.write(f"**Sıcaklık:** {ara['T_out_K'] - 273.15:.2f} °C")
-                    st.write(f"**Yoğunluk:** {ara['rho_out']:.2f} kg/m³")
-                    st.write(f"**Sp. Entalpi:** {ara['H_out_kJ_kg']:.2f} kJ/kg")
-            with detail_col3:
-                with st.container(border=True):
-                    st.markdown("**⚙️ Akış Parametreleri**")
-                    st.write(f"**Kütlesel Debi:** {ara['m_dot_kg_s']:.4f} kg/s")
-                    st.write(f"**Basınç Düşümü (ΔP):** {ara['delta_P_bar']:.2f} bar")
-                    st.write(f"**Kullanılan Motor:** {result['eos']}")
-                    if "Cp_ideal" in ara:
-                        st.write(f"**İdeal Gaz Cp0:** {ara['Cp_ideal']:.3f} kJ/(kg·K)")
+                    st.divider()
+                    st.subheader("🔍 Detaylı Termodinamik Veriler")
+                    ara = result["ara"]
+                    detail_col1, detail_col2, detail_col3 = st.columns(3)
+                    with detail_col1:
+                        with st.container(border=True):
+                            st.markdown("**📥 Giriş Koşulları**")
+                            st.write(f"**Faz:** {ara.get('faz_in', '—')}")
+                            st.write(f"**Basınç:** {ara.get('P_in_Pa', 0) / 1e5:.2f} bar(a)")
+                            st.write(f"**Sıcaklık:** {ara.get('T_in_K', 273.15) - 273.15:.2f} °C")
+                            st.write(f"**Yoğunluk:** {ara.get('rho_in', 0):.2f} kg/m³")
+                            st.write(f"**Sp. Entalpi:** {ara.get('H_in_kJ_kg', 0):.2f} kJ/kg")
+                    with detail_col2:
+                        with st.container(border=True):
+                            st.markdown("**📤 Çıkış Koşulları**")
+                            st.write(f"**Faz:** {ara.get('faz_out', '—')}")
+                            st.write(f"**Basınç:** {ara.get('P_out_Pa', 0) / 1e5:.2f} bar(a)")
+                            st.write(f"**Sıcaklık:** {ara.get('T_out_K', 273.15) - 273.15:.2f} °C")
+                            st.write(f"**Yoğunluk:** {ara.get('rho_out', 0):.2f} kg/m³")
+                            st.write(f"**Sp. Entalpi:** {ara.get('H_out_kJ_kg', 0):.2f} kJ/kg")
+                    with detail_col3:
+                        with st.container(border=True):
+                            st.markdown("**⚙️ Akış Parametreleri**")
+                            st.write(f"**Kütlesel Debi:** {ara.get('m_dot_kg_s', 0):.4f} kg/s")
+                            st.write(f"**Basınç Düşümü (ΔP):** {ara.get('delta_P_bar', 0):.2f} bar")
+                            st.write(f"**Kullanılan Motor:** {result.get('eos', '—')}")
+                            if "Cp_ideal" in ara:
+                                st.write(f"**İdeal Gaz Cp0:** {ara['Cp_ideal']:.3f} kJ/(kg·K)")
+
+            elif "actual_area_m2" in result:
+                # ── Detaylı Boyutlandırma Raporu ──
+                st.caption("Bu rapor **Gelişmiş Boyutlandırma (Sizing)** sonuçlarını içermektedir.")
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                m_col1.metric("Toplam Yük (Q)", f"{result.get('Q_kW', 0.0) / 1000.0:.4f} MW", border=True)
+                m_col2.metric("Toplam Eşanjör Alanı", f"{result.get('actual_area_m2', 0.0):.2f} m²", border=True)
+                m_col3.metric("Gerekli Alan", f"{result.get('required_area_m2', 0.0):.2f} m²", border=True)
+                m_col4.metric("Overdesign %", f"{result.get('overdesign_pct', 0.0):.2f} %", border=True)
+
+                d_col1, d_col2 = st.columns(2)
+                with d_col1:
+                    with st.container(border=True):
+                        st.markdown("**🔬 Isı Geçiş Performansı & Dirençler**")
+                        st.write(f"**U Katsayısı (Toplam):** {result.get('U_W_m2K', 0.0):.2f} W/(m²·K)")
+                        st.write(f"**h_i (Boru İçi):** {result.get('h_inside_W_m2K', 0.0):.1f} W/(m²·K)")
+                        st.write(f"**h_o (Hava Tarafı):** {result.get('h_outside_W_m2K', 0.0):.1f} W/(m²·K)")
+                        st.write(f"**Efektif LMTD (Ft x LMTD):** {result.get('effective_lmtd_K', 0.0):.2f} K")
+                with d_col2:
+                    with st.container(border=True):
+                        if result.get('gas_dP_minor_bar'):
+                            st.write(f"**Gaz Tarafı Toplam Basınç Düşümü:** {result.get('gas_dP_bar', 0.0):.4f} bar (Sürtünme: {result.get('gas_dP_friction_bar', 0.0):.4f} bar, Kollektör/Nozül: {result.get('gas_dP_minor_bar', 0.0):.4f} bar)")
+                        else:
+                            st.write(f"**Gaz Tarafı Basınç Düşümü:** {result.get('gas_dP_bar', 0.0):.4f} bar")
+                        st.write(f"**Hava Tarafı Basınç Düşümü:** {result.get('dP_air_Pa', 0.0):.1f} Pa")
+                        st.write(f"**Tahmini Fan Gücü:** {result.get('fan_power_kW', 0.0):.2f} kW")
+                        st.write(f"**Boru İçi Gaz Hızı:** {result.get('gas_velocity_m_s', 0.0):.2f} m/s")
+
+                if result.get('saturation_fallback_applied'):
+                    st.info(f"ℹ️ **Termodinamik Model Bildirimi:** {result.get('saturation_note')}")
+
+            elif "effectiveness" in result:
+                # ── Rating Raporu ──
+                st.caption("Bu rapor **Gelişmiş Değerlendirme (Rating)** sonuçlarını içermektedir.")
+                rc_1, rc_2, rc_3 = st.columns(3)
+                rc_1.metric("Gerçek Isı Aktarımı (Q)", f"{result.get('Q_kW', 0.0) / 1000.0:.4f} MW", border=True)
+                rc_2.metric("Gaz Çıkış Sıcaklığı", f"{result.get('T_gas_out_C', 0.0):.2f} °C", border=True)
+                rc_3.metric("Hava Çıkış Sıcaklığı", f"{result.get('T_air_out_C', 0.0):.2f} °C", border=True)
+
+                rc_4, rc_5 = st.columns(2)
+                with rc_4:
+                    with st.container(border=True):
+                        st.markdown("**🔬 Isı Değiştirici Etkinliği**")
+                        st.write(f"**Isı Değiştirici Verimi (Effectiveness):** {result.get('effectiveness', 0.0) * 100:.2f} %")
+                        st.write(f"**NTU (Transfer Birim Sayısı):** {result.get('NTU', 0.0):.3f}")
+                        st.write(f"**U Katsayısı (Toplam):** {result.get('U_W_m2K', 0.0):.2f} W/(m²·K)")
+                with rc_5:
+                    with st.container(border=True):
+                        st.markdown("**🌪️ Hidrolik & Fan**")
+                        st.write(f"**Gaz Tarafı Basınç Düşümü:** {result.get('gas_dP_bar', 0.0):.4f} bar")
+                        st.write(f"**Hava Tarafı Basınç Düşümü:** {result.get('dP_air_Pa', 0.0):.1f} Pa")
+                        st.write(f"**Boru İçi Gaz Hızı:** {result.get('gas_velocity_m_s', 0.0):.2f} m/s")
+            else:
+                st.json(result)
 
             # ── Admin: Tüm EOS Karşılaştırma Tablosu ──
             _role = st.session_state.get("role", "user")
-            if _role == "admin" and st.session_state.get("kompozisyon"):
+            if _role == "admin" and st.session_state.get("kompozisyon") and "ara" in result:
                 st.divider()
                 with st.expander("🔬 Tüm EOS'ları Karşılaştır (Admin)", expanded=False):
                     if st.button("▶ Karşılaştırmayı Çalıştır", key="eos_compare_btn"):

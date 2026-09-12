@@ -19,6 +19,34 @@ from reportlab.platypus import (
 )
 from reportlab.platypus.flowables import HRFlowable
 
+from air_cooler_main_core import APP_VERSION
+
+
+def _json_safe(value):
+    """Dataclass, Pint Quantity ve numpy değerlerini JSON-serializable yapıya derinlemesine çevirir."""
+    import dataclasses
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _json_safe(dataclasses.asdict(value))
+    if hasattr(value, "magnitude") and hasattr(value, "units"):
+        return {"magnitude": float(value.magnitude), "unit": str(value.units)}
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if np is not None:
+        if isinstance(value, np.ndarray):
+            return _json_safe(value.tolist())
+        if isinstance(value, (np.generic, np.number)):
+            return value.item()
+    if isinstance(value, (int, float, str, bool)) or value is None:
+        return value
+    return str(value)
+
 
 def _sanitize(val, default="—"):
     if val is None:
@@ -314,7 +342,7 @@ def export_pdf(res, geom_params, kompozisyon, mode="Sizing"):
 
     elements.append(Spacer(1, 5*mm))
     elements.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#BDC3C7")))
-    elements.append(Paragraph("Bu rapor Air Cooler Main v4.0.0 tarafından otomatik oluşturulmuştur.", note_style))
+    elements.append(Paragraph(f"Bu rapor Air Cooler Main v{APP_VERSION} tarafından otomatik oluşturulmuştur.", note_style))
 
     doc.build(elements)
     buf.seek(0)
@@ -352,8 +380,8 @@ def save_project(project_name, description, inputs, results, saved_by="user"):
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
         "type": "sizing" if results else "unknown",
-        "inputs": inputs,
-        "results": results or {},
+        "inputs": _json_safe(inputs),
+        "results": _json_safe(results or {}),
     }
     path = _projects_dir() / filename
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
